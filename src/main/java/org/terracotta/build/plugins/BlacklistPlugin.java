@@ -50,7 +50,7 @@ public class BlacklistPlugin implements Plugin<Project> {
 
   public static class BlacklistExtension {
 
-    private Project project;
+    private final Project project;
 
     public BlacklistExtension(Project project) {
       this.project = project;

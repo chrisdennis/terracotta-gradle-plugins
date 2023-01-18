@@ -7,6 +7,11 @@ import aQute.service.reporter.Report;
 import com.github.jengelman.gradle.plugins.shadow.ShadowStats;
 import com.github.jengelman.gradle.plugins.shadow.relocation.RelocateClassContext;
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar;
+import org.gradle.api.attributes.AttributeCompatibilityRule;
+import org.gradle.api.attributes.AttributesSchema;
+import org.gradle.api.attributes.CompatibilityCheckDetails;
+import org.terracotta.build.Utils;
+import org.terracotta.build.plugins.JavaVersionPlugin.JavaVersions;
 import groovy.lang.Closure;
 import org.gradle.api.Action;
 import org.gradle.api.GradleException;
@@ -25,7 +30,6 @@ import org.gradle.api.attributes.Usage;
 import org.gradle.api.component.AdhocComponentWithVariants;
 import org.gradle.api.component.SoftwareComponentFactory;
 import org.gradle.api.file.ConfigurableFileCollection;
-import org.gradle.api.file.DuplicatesStrategy;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.file.FileTree;
 import org.gradle.api.internal.artifacts.configurations.ResolutionStrategyInternal;
@@ -53,8 +57,6 @@ import org.gradle.internal.service.ServiceRegistry;
 import org.gradle.jvm.toolchain.JavaLanguageVersion;
 import org.gradle.language.base.plugins.LifecycleBasePlugin;
 import org.gradle.util.internal.ClosureBackedAction;
-import org.terracotta.build.Utils;
-import org.terracotta.build.plugins.JavaVersionPlugin.JavaVersions;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -97,13 +99,22 @@ public class PackagePlugin implements Plugin<Project> {
 
   public static final String UNSHADED_JAVA_RUNTIME = "unshaded-java-runtime";
 
-  private static final String CONTENTS_CONFIGURATION_NAME = "contents";
-  private static final String CONTENTS_API_CONFIGURATION_NAME = "contentsApi";
-  private static final String CONTENTS_RUNTIME_ELEMENTS_CONFIGURATION_NAME = "contentsRuntimeElements";
-  private static final String CONTENTS_SOURCES_ELEMENTS_CONFIGURATION_NAME = "contentsSourcesElements";
+  public static final String CONTENTS_CONFIGURATION_NAME = "contents";
+  public static final String CONTENTS_API_CONFIGURATION_NAME = "contentsApi";
+  public static final String CONTENTS_RUNTIME_ELEMENTS_CONFIGURATION_NAME = "contentsRuntimeElements";
+  public static final String CONTENTS_SOURCES_ELEMENTS_CONFIGURATION_NAME = "contentsSourcesElements";
 
-  private static final Pattern OSGI_EXPORT_PATTERN = Pattern.compile("((?:[^;,]+)((?:;[^,:=]+:?=\"[^\"]+\")*))(?:,|$)");
-  private static final String SOURCES_TASK_NAME = "sources";
+  public static final String UNSHADED_API_ELEMENTS_CONFIGURATION_NAME = "unshadedApiElements";
+  public static final String UNSHADED_RUNTIME_ELEMENTS_CONFIGURATION_NAME = "unshadedRuntimeElements";
+  public static final String UNSHADED_RUNTIME_CLASSPATH_CONFIGURATION_NAME = "unshadedRuntimeClasspath";
+
+  public static final String SHADED_API_ELEMENTS_CONFIGURATION_NAME = "shadedApiElements";
+  public static final String SHADED_RUNTIME_ELEMENTS_CONFIGURATION_NAME = "shadedRuntimeElements";
+  public static final String SHADED_RUNTIME_CLASSPATH_CONFIGURATION_NAME = "shadedRuntimeClasspath";
+
+  public static final String SOURCES_TASK_NAME = "sources";
+
+  private static final Pattern OSGI_EXPORT_PATTERN = Pattern.compile("([^;,]+((?:;[^,:=]+:?=\"[^\"]+\")*))(?:,|$)");
 
   @Override
   public void apply(Project project) {
@@ -128,6 +139,8 @@ public class PackagePlugin implements Plugin<Project> {
   }
 
   private void createDefaultPackage(Project project) {
+    project.getPlugins().apply(JavaVersionPlugin.class);
+
     ServiceRegistry projectServices = ((ProjectInternal) project).getServices();
     JvmPluginServices jvmPluginServices = projectServices.get(JvmPluginServices.class);
 
@@ -183,7 +196,7 @@ public class PackagePlugin implements Plugin<Project> {
       sync.setDescription("Collects the sources contributing to this shaded artifact.");
       sync.setGroup(DOCUMENTATION_GROUP);
       sync.dependsOn(contentsSourcesElements);
-      sync.from(sourcesTree, spec -> spec.exclude("META-INF/**", "LICENSE", "NOTICE"));
+      sync.from(sourcesTree, spec -> spec.exclude("META-INF/**"));
       sync.into(project.getLayout().getBuildDirectory().dir("sources"));
     });
 
@@ -192,15 +205,16 @@ public class PackagePlugin implements Plugin<Project> {
     Configuration compileOnlyApi = createBucket(project, COMPILE_ONLY_API_CONFIGURATION_NAME);
     Configuration runtimeOnly = createBucket(project, RUNTIME_ONLY_CONFIGURATION_NAME);
 
-    Configuration unshadedApiElements = jvmPluginServices.createOutgoingElements("unshadedApiElements", builder -> builder
+
+    jvmPluginServices.createOutgoingElements(UNSHADED_API_ELEMENTS_CONFIGURATION_NAME, builder -> builder
                     .extendsFrom(api, compileOnlyApi, contentsApi).providesApi()
                     .providesAttributes(JvmEcosystemAttributesDetails::withExternalDependencies))
             .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt)));
-    jvmPluginServices.createOutgoingElements("unshadedRuntimeElements", builder -> builder
+    jvmPluginServices.createOutgoingElements(UNSHADED_RUNTIME_ELEMENTS_CONFIGURATION_NAME, builder -> builder
                     .extendsFrom(implementation, runtimeOnly, contents).providesAttributes(JvmEcosystemAttributesDetails::withExternalDependencies))
             .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt))
                     .attribute(Usage.USAGE_ATTRIBUTE, project.getObjects().named(Usage.class, UNSHADED_JAVA_RUNTIME)));
-    Configuration unshadedRuntimeClasspath = jvmPluginServices.createResolvableConfiguration("unshadedRuntimeClasspath", builder -> builder
+    Configuration unshadedRuntimeClasspath = jvmPluginServices.createResolvableConfiguration(UNSHADED_RUNTIME_CLASSPATH_CONFIGURATION_NAME, builder -> builder
                     .extendsFrom(implementation, runtimeOnly).requiresAttributes(JvmEcosystemAttributesDetails::withExternalDependencies))
             .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt))
                     .attribute(Usage.USAGE_ATTRIBUTE, project.getObjects().named(Usage.class, UNSHADED_JAVA_RUNTIME)));
@@ -213,35 +227,18 @@ public class PackagePlugin implements Plugin<Project> {
 
       shadow.mergeServiceFiles();
 
-      shadow.exclude("META-INF/MANIFEST.MF", "LICENSE", "NOTICE");
-
-      // LICENSE is included in root gradle build
-      shadow.from(new File(project.getRootDir(), "NOTICE"));
-      shadow.setDuplicatesStrategy(DuplicatesStrategy.EXCLUDE);
-
-      unshadedApiElements.exclude(mapOf(String.class, String.class, "group", "org.terracotta", "module", "statistics"));
-      shadow.relocate("org.terracotta.statistics.", "com.terracottatech.shadow.org.terracotta.statistics.");
-      shadow.relocate("org.terracotta.context.", "com.terracottatech.shadow.org.terracotta.context.");
-
-      unshadedApiElements.exclude(mapOf(String.class, String.class, "group", "com.terracottatech", "module", "offheap-restartable-store"));
-      shadow.relocate("com.terracottatech.offheapstore.", "com.terracottatech.shadow.com.terracottatech.offheapstore.");
-
-      unshadedApiElements.exclude(mapOf(String.class, String.class, "group", "org.terracotta", "module", "offheap-store"));
-      shadow.relocate("org.terracotta.offheapstore.", "com.terracottatech.shadow.org.terracotta.offheapstore.");
-
-      unshadedApiElements.exclude(mapOf(String.class, String.class, "group", "com.terracottatech", "module", "fast-restartable-store"));
-      shadow.relocate("com.terracottatech.frs.", "com.terracottatech.shadow.com.terracottatech.frs.");
+      shadow.exclude("META-INF/MANIFEST.MF");
     });
 
-    Configuration shadedApiElements = jvmPluginServices.createOutgoingElements("shadedApiElements", builder -> builder
+    Configuration shadedApiElements = jvmPluginServices.createOutgoingElements(SHADED_API_ELEMENTS_CONFIGURATION_NAME, builder -> builder
                     .extendsFrom(api, compileOnlyApi).artifact(shadowJar).published().providesApi()
                     .providesAttributes(JvmEcosystemAttributesDetails::withEmbeddedDependencies))
             .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt)));
-    Configuration shadedRuntimeElements = jvmPluginServices.createOutgoingElements("shadedRuntimeElements", builder -> builder
+    Configuration shadedRuntimeElements = jvmPluginServices.createOutgoingElements(SHADED_RUNTIME_ELEMENTS_CONFIGURATION_NAME, builder -> builder
                     .extendsFrom(implementation, runtimeOnly).artifact(shadowJar).published().providesRuntime()
                     .providesAttributes(JvmEcosystemAttributesDetails::withEmbeddedDependencies))
             .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt)));
-    Configuration shadedRuntimeClasspath = jvmPluginServices.createResolvableConfiguration("shadedRuntimeClasspath", builder -> builder
+    Configuration shadedRuntimeClasspath = jvmPluginServices.createResolvableConfiguration(SHADED_RUNTIME_CLASSPATH_CONFIGURATION_NAME, builder -> builder
                     .extendsFrom(implementation, runtimeOnly).requiresAttributes(JvmEcosystemAttributesDetails::withEmbeddedDependencies).requiresJavaLibrariesRuntime())
             .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt)));
 
@@ -275,14 +272,6 @@ public class PackagePlugin implements Plugin<Project> {
       return thing;
     } else {
       return variant + capitalize(thing);
-    }
-  }
-
-  private static String kebabPrefix(String variant, String thing) {
-    if (variant == null) {
-      return thing;
-    } else {
-      return variant + "-" + thing;
     }
   }
 
@@ -469,11 +458,11 @@ public class PackagePlugin implements Plugin<Project> {
 
       JavaVersions javaVersions = project.getExtensions().getByType(JavaVersions.class);
 
-      Configuration shadedApiElements = jvmPluginServices.createOutgoingElements(camelPrefix(feature, "shadedApiElements"), builder ->
+      Configuration shadedApiElements = jvmPluginServices.createOutgoingElements(camelPrefix(feature, SHADED_API_ELEMENTS_CONFIGURATION_NAME), builder ->
                       builder.extendsFrom(api, compileOnlyApi).published().providesApi().capability(group, capability, project.getVersion().toString())
                               .providesAttributes(JvmEcosystemAttributesDetails::withEmbeddedDependencies).artifact(project.getTasks().named(JAR_TASK_NAME)))
               .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt)));
-      Configuration shadedRuntimeElements = jvmPluginServices.createOutgoingElements(camelPrefix(feature, "shadedRuntimeElements"), builder ->
+      Configuration shadedRuntimeElements = jvmPluginServices.createOutgoingElements(camelPrefix(feature, SHADED_RUNTIME_ELEMENTS_CONFIGURATION_NAME), builder ->
                       builder.extendsFrom(implementation, runtimeOnly).published().providesRuntime().capability(group, capability, project.getVersion().toString())
                               .providesAttributes(JvmEcosystemAttributesDetails::withEmbeddedDependencies).artifact(project.getTasks().named(JAR_TASK_NAME)))
               .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt)));
@@ -489,12 +478,12 @@ public class PackagePlugin implements Plugin<Project> {
         });
       });
 
-      jvmPluginServices.createOutgoingElements(camelPrefix(feature, "unshadedApiElements"), builder ->
+      jvmPluginServices.createOutgoingElements(camelPrefix(feature, UNSHADED_API_ELEMENTS_CONFIGURATION_NAME), builder ->
                       builder.extendsFrom(api, compileOnlyApi, bucket(project, CONTENTS_API_CONFIGURATION_NAME))
                               .providesApi().capability(group, capability, project.getVersion().toString())
                               .providesAttributes(JvmEcosystemAttributesDetails::withExternalDependencies))
               .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt)));
-      jvmPluginServices.createOutgoingElements(camelPrefix(feature, "unshadedRuntimeElements"), builder ->
+      jvmPluginServices.createOutgoingElements(camelPrefix(feature, UNSHADED_RUNTIME_ELEMENTS_CONFIGURATION_NAME), builder ->
                       builder.extendsFrom(implementation, runtimeOnly, bucket(project, CONTENTS_CONFIGURATION_NAME))
                               .capability(group, capability, project.getVersion().toString())
                               .providesAttributes(JvmEcosystemAttributesDetails::withExternalDependencies))
@@ -539,7 +528,7 @@ public class PackagePlugin implements Plugin<Project> {
         task.source(project.getTasks().named(SOURCES_TASK_NAME));
         task.include("**/*.java");
         task.setClasspath(project.getConfigurations().getByName(CONTENTS_RUNTIME_ELEMENTS_CONFIGURATION_NAME)
-                .plus(project.getConfigurations().getByName("unshadedRuntimeClasspath"))
+                .plus(project.getConfigurations().getByName(UNSHADED_RUNTIME_CLASSPATH_CONFIGURATION_NAME))
                 .plus(additionalJavadocClasspath));
         task.setDestinationDir(new File(project.getBuildDir(), JAVADOC_TASK_NAME));
       });
@@ -616,5 +605,29 @@ public class PackagePlugin implements Plugin<Project> {
 
   private static Configuration createFeatureBucket(Project project, String feature, String bucket) {
     return createBucket(project, camelPrefix(feature, bucket)).extendsFrom(bucket(project, bucket));
+  }
+
+  public static void augmentAttributeSchema(AttributesSchema schema) {
+    schema.attribute(Usage.USAGE_ATTRIBUTE, strategy -> strategy.getCompatibilityRules().add(UnshadedJavaRuntimeCompatibility.class));
+  }
+
+  public static class UnshadedJavaRuntimeCompatibility implements AttributeCompatibilityRule<Usage> {
+
+    @Override
+    public void execute(CompatibilityCheckDetails<Usage> details) {
+      Usage consumer = details.getConsumerValue();
+
+      if (consumer != null && UNSHADED_JAVA_RUNTIME.equals(consumer.getName())) {
+        Usage producer = details.getProducerValue();
+        if (producer != null) {
+          switch (producer.getName()) {
+            case Usage.JAVA_RUNTIME:
+            case Usage.JAVA_RUNTIME_JARS:
+              details.compatible();
+              break;
+          }
+        }
+      }
+    }
   }
 }

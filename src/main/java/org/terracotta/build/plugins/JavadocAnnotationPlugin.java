@@ -13,7 +13,7 @@ import java.util.stream.Stream;
 
 import static java.util.regex.Pattern.quote;
 
-public class EhcacheJavadocPlugin implements Plugin<Project> {
+public class JavadocAnnotationPlugin implements Plugin<Project> {
     @Override
     public void apply(Project project) {
         project.getTasks().withType(Javadoc.class).configureEach(javadoc -> {
