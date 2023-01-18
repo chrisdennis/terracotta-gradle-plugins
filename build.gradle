@@ -11,7 +11,7 @@ repositories {
 
 dependencies {
   api 'gradle.plugin.com.github.johnrengelman:shadow:7.1.2'
-  implementation 'biz.aQute.bnd:biz.aQute.bndlib:6.4.0'
+  api 'biz.aQute.bnd:biz.aQute.bndlib:6.4.0'
   implementation 'org.apache.httpcomponents.client5:httpclient5-fluent:5.2.1'
   implementation 'org.terracotta:terracotta-utilities-tools:0.0.16'
 
@@ -54,7 +54,7 @@ gradlePlugin {
     }
     javadocFilter {
       id = 'org.terracotta.build.javadoc-annotation'
-      implementationClass = 'org.terracotta.build.plugins.EhcacheJavadocPlugin'
+      implementationClass = 'org.terracotta.build.plugins.JavadocAnnotationPlugin'
     }
     javaVersionPlugin {
       id = 'org.terracotta.build.java-version'

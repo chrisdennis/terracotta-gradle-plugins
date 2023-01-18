@@ -109,7 +109,7 @@ public class DeployPlugin implements Plugin<Project> {
         MavenPublication publication = publishTask.getPublication();
         if (publication instanceof ProjectComponentPublication) {
           SoftwareComponentInternal component = ((ProjectComponentPublication) publication).getComponent();
-          if (component != null) { //The shadow plugin doesn"t associate a component with the publication
+          if (component != null) { //The shadow plugin doesn't associate a component with the publication
             Collection<ProjectDependency> unpublishedDeps = component.getUsages().stream().flatMap(usage ->
                     usage.getDependencies().stream().filter(ProjectDependency.class::isInstance).map(ProjectDependency.class::cast).filter(moduleDependency ->
                             !moduleDependency.getDependencyProject().getPlugins().hasPlugin(DeployPlugin.class))).collect(Collectors.toList());

@@ -5,22 +5,24 @@ import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.Configuration;
-import org.gradle.api.artifacts.Dependency;
-import org.gradle.api.artifacts.ModuleDependency;
 import org.gradle.api.file.Directory;
+import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.api.plugins.JvmEcosystemPlugin;
+import org.gradle.api.plugins.JvmTestSuitePlugin;
+import org.gradle.api.plugins.jvm.JvmTestSuite;
+import org.gradle.api.plugins.jvm.internal.JvmPluginServices;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.Sync;
 import org.gradle.api.tasks.testing.Test;
+import org.gradle.internal.service.ServiceRegistry;
+import org.gradle.testing.base.TestingExtension;
+import org.terracotta.build.PluginUtils;
 
 import java.nio.file.Files;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
-import static org.gradle.api.plugins.JavaPlugin.TEST_IMPLEMENTATION_CONFIGURATION_NAME;
-import static org.terracotta.build.Utils.coordinate;
-import static org.terracotta.build.Utils.group;
 
 /**
  * Angela based testing plugin.
@@ -33,41 +35,45 @@ import static org.terracotta.build.Utils.group;
  * </ul>
  */
 public class AngelaPlugin implements Plugin<Project> {
+
+  public static final String KIT_CONFIGURATION_NAME = "angelaKit";
+  public static final String FRAMEWORK_CONFIGURATION_NAME = "angela";
+  public static final String SERVER_PLUGINS_CONFIGURATION_NAME = "angelaServerPlugins";
+
   @Override
   public void apply(Project project) {
     project.getPlugins().apply(JvmEcosystemPlugin.class);
 
+    ServiceRegistry projectServices = ((ProjectInternal) project).getServices();
+    JvmPluginServices jvmPluginServices = projectServices.get(JvmPluginServices.class);
+
     Provider<Directory> angelaDir = project.getLayout().getBuildDirectory().dir("angela");
     Provider<Directory> customKitDir = angelaDir.map(d -> d.dir("custom-tc-db-kit"));
 
-    project.getConfigurations().getByName(TEST_IMPLEMENTATION_CONFIGURATION_NAME, testImplementation -> {
-      Dependency angela = project.getDependencies().create("org.terracotta:angela:" + project.property("angelaVersion"));
-      if (angela instanceof ModuleDependency) {
-        ((ModuleDependency) angela).exclude(group("org.slf4j"));
-        ((ModuleDependency) angela).exclude(group("javax.cache"));
-      } else {
-        throw new IllegalArgumentException();
-      }
-      Dependency angelaResolver = project.getDependencies().project(coordinate(":common:angela-test-kit-resolver"));
-      if (angelaResolver instanceof ModuleDependency) {
-        ((ModuleDependency) angelaResolver).exclude(group("org.slf4j"));
-        ((ModuleDependency) angelaResolver).exclude(group("javax.cache"));
-      } else {
-        throw new IllegalArgumentException();
-      }
-
-      testImplementation.getDependencies().add(angela);
-      testImplementation.getDependencies().add(angelaResolver);
+    Configuration angela = PluginUtils.createBucket(project, FRAMEWORK_CONFIGURATION_NAME);
+    angela.defaultDependencies(defaultDeps -> {
+      defaultDeps.add(project.getDependencyFactory().create("org.terracotta", "angela", "[3,)"));
     });
 
-    Provider<Configuration> kit = project.getConfigurations().register("angela-kit", config -> {
-      config.setCanBeConsumed(false);
-      config.setVisible(false);
-      config.getDependencies().add(project.getDependencies().project(coordinate(":terracotta", "kit")));
+    project.getPlugins().withType(JvmTestSuitePlugin.class).configureEach(plugin -> {
+      project.getExtensions().configure(TestingExtension.class, testing -> {
+        testing.getSuites().withType(JvmTestSuite.class).configureEach(testSuite -> {
+          project.getConfigurations().named(testSuite.getSources().getImplementationConfigurationName(), config -> {
+            config.extendsFrom(angela);
+          });
+        });
+      });
     });
-    Provider<Configuration> pluginLibs = project.getConfigurations().register("pluginLibs", config -> config.setCanBeConsumed(false));
-    Provider<Sync> customKitPreparation = project.getTasks().register("angela-custom-kit-preparation", Sync.class, task -> {
-      task.onlyIf(t -> !pluginLibs.get().isEmpty());
+
+    Provider<Configuration> kit = project.getConfigurations().register(KIT_CONFIGURATION_NAME);
+
+    Configuration serverPlugins = PluginUtils.createBucket(project, SERVER_PLUGINS_CONFIGURATION_NAME);
+    Configuration serverPluginsClasspath = jvmPluginServices.createResolvableConfiguration(SERVER_PLUGINS_CONFIGURATION_NAME + "Classpath", builder -> {
+      builder.extendsFrom(serverPlugins).requiresJavaLibrariesRuntime();
+    });
+
+    Provider<Sync> customKitPreparation = project.getTasks().register("angelaCustomKitPreparation", Sync.class, task -> {
+      task.onlyIf(t -> !serverPluginsClasspath.isEmpty());
 
       task.from(kit);
       task.into(customKitDir);
@@ -77,7 +83,7 @@ public class AngelaPlugin implements Plugin<Project> {
               .map(dir -> (Predicate<String>) (String file) -> Files.exists(dir.resolve(file)))
               .reduce(Predicate::or).orElse(f -> false);
 
-      task.from(pluginLibs, spec -> {
+      task.from(serverPluginsClasspath, spec -> {
         spec.into("server/plugins/lib");
         spec.eachFile(fcd -> {
           if (pruning.test(fcd.getName())) {
@@ -86,11 +92,8 @@ public class AngelaPlugin implements Plugin<Project> {
         });
       });
     });
-    project.getTasks().named("test", Test.class, task -> {
+    project.getTasks().withType(Test.class, task -> {
       task.dependsOn(customKitPreparation);
-
-      // concurrently run angela tests
-      task.setMaxParallelForks(3);
 
       /*
        * Angela properties
@@ -104,7 +107,7 @@ public class AngelaPlugin implements Plugin<Project> {
       task.doFirst(new Action<Task>() {
         @Override
         public void execute(Task t) {
-          if (pluginLibs.get().isEmpty()) {
+          if (serverPluginsClasspath.isEmpty()) {
             task.systemProperty("angela.kitInstallationDir", kit.get().getSingleFile().getAbsolutePath());
           } else {
             task.systemProperty("angela.kitInstallationDir", customKitDir.get().getAsFile().getAbsolutePath());
