@@ -23,8 +23,10 @@ import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.TaskCollection;
 import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.util.PatternSet;
+import org.gradle.internal.exceptions.MultiCauseException;
 import org.gradle.language.base.plugins.LifecycleBasePlugin;
 import org.gradle.process.ExecSpec;
+import org.gradle.process.internal.ExecException;
 
 import javax.inject.Inject;
 import java.io.File;
@@ -37,6 +39,8 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.temporal.ChronoField;
 import java.util.AbstractMap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
@@ -192,10 +196,15 @@ public class CopyrightPlugin implements Plugin<Project> {
         return a;
       }).orElseThrow(GradleException::new);
 
-      Map<File, Integer> expectedCopyrightYears = Stream.concat(Stream.of(git(spec -> spec.args("rev-list",
-                              "--no-commit-header", "--pretty=format:%H %ad %(trailers:key=Copyright-Check,valueonly,separator= )", "--date=format:%Y",
-                              "--no-merges", "HEAD", "--not", "--remotes=*/main", "--remotes=*/release/*", root)).split("\\R"))
-                      .filter(line -> !line.isEmpty()).flatMap(line -> {
+      Map<File, Integer> expectedCopyrightYears = Stream.concat(Stream.of(tryGit(
+                              spec -> spec.args("rev-list", "--no-commit-header",
+                                      "--pretty=format:%H %ad %(trailers:key=Copyright-Check,valueonly,separator= )", "--date=format:%Y",
+                                      "--no-merges", "HEAD", "--not", "--remotes=*/main", "--remotes=*/release/*", root),
+                              //Earlier git versions don't support --no-commit-header, so we'll try again without
+                              spec -> spec.args("rev-list",
+                                      "--pretty=format:%H %ad %(trailers:key=Copyright-Check,valueonly,separator= )", "--date=format:%Y",
+                                      "--no-merges", "HEAD", "--not", "--remotes=*/main", "--remotes=*/release/*", root)).split("\\R"))
+                      .filter(line -> !line.isEmpty() && !line.startsWith("commit")).flatMap(line -> {
                         String[] fields = line.split("\\s+", 3);
                         String commit = fields[0];
                         int year = parseInt(fields[1]);
@@ -238,6 +247,23 @@ public class CopyrightPlugin implements Plugin<Project> {
 
     private String git(Action<ExecSpec> action) {
       return execUnder(this, composite(exec -> exec.setExecutable(getGitExecutable().get()), action));
+    }
+
+    @SafeVarargs
+    private final String tryGit(Action<ExecSpec>... executions) {
+      List<GradleException> failures = new ArrayList<>();
+      for (Action<ExecSpec> execution : executions) {
+        try {
+          return git(execution);
+        } catch (ExecException e) {
+          failures.add(e);
+          getLogger().debug("git execution failed, trying again: ", e);
+        }
+      }
+      throw failures.stream().reduce((a, b) -> {
+        a.addSuppressed(b);
+        return a;
+      }).orElseThrow(AssertionError::new);
     }
   }
 }
