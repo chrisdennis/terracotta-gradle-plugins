@@ -28,10 +28,12 @@ import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
 import org.gradle.api.artifacts.dsl.DependencyHandler;
 import org.gradle.api.attributes.Usage;
 import org.gradle.api.component.AdhocComponentWithVariants;
+import org.gradle.api.component.ConfigurationVariantDetails;
 import org.gradle.api.component.SoftwareComponentFactory;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.file.FileTree;
+import org.gradle.api.internal.artifacts.dependencies.DefaultDependencyConstraint;
 import org.gradle.api.internal.artifacts.configurations.ResolutionStrategyInternal;
 import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.api.plugins.BasePlugin;
@@ -103,6 +105,8 @@ public class PackagePlugin implements Plugin<Project> {
   public static final String CONTENTS_API_CONFIGURATION_NAME = "contentsApi";
   public static final String CONTENTS_RUNTIME_ELEMENTS_CONFIGURATION_NAME = "contentsRuntimeElements";
   public static final String CONTENTS_SOURCES_ELEMENTS_CONFIGURATION_NAME = "contentsSourcesElements";
+
+  public static final String PROVIDED_CONFIGURATION_NAME = "provided";
 
   public static final String UNSHADED_API_ELEMENTS_CONFIGURATION_NAME = "unshadedApiElements";
   public static final String UNSHADED_RUNTIME_ELEMENTS_CONFIGURATION_NAME = "unshadedRuntimeElements";
@@ -204,6 +208,7 @@ public class PackagePlugin implements Plugin<Project> {
     Configuration implementation = createBucket(project, IMPLEMENTATION_CONFIGURATION_NAME).extendsFrom(api);
     Configuration compileOnlyApi = createBucket(project, COMPILE_ONLY_API_CONFIGURATION_NAME);
     Configuration runtimeOnly = createBucket(project, RUNTIME_ONLY_CONFIGURATION_NAME);
+    Configuration provided = createBucket(project, PROVIDED_CONFIGURATION_NAME);
 
 
     jvmPluginServices.createOutgoingElements(UNSHADED_API_ELEMENTS_CONFIGURATION_NAME, builder -> builder
@@ -264,6 +269,10 @@ public class PackagePlugin implements Plugin<Project> {
 
     project.getTasks().named(LifecycleBasePlugin.ASSEMBLE_TASK_NAME).configure(task -> {
       task.dependsOn(shadowJar);
+    });
+
+    provided.getDependencies().configureEach(dependency -> {
+      implementation.getDependencyConstraints().add(DefaultDependencyConstraint.strictly(dependency.getGroup(), dependency.getName(), dependency.getVersion()));
     });
   }
 
@@ -439,6 +448,10 @@ public class PackagePlugin implements Plugin<Project> {
     }
 
     public void withOptionalFeature(String feature) {
+      withOptionalFeature(feature, ConfigurationVariantDetails::mapToOptional);
+    }
+
+    public void withOptionalFeature(String feature, Action<ConfigurationVariantDetails> action) {
       Configuration api = createFeatureBucket(project, feature, API_CONFIGURATION_NAME);
       Configuration implementation = createFeatureBucket(project, feature, IMPLEMENTATION_CONFIGURATION_NAME).extendsFrom(api);
       Configuration compileOnlyApi = createFeatureBucket(project, feature, COMPILE_ONLY_API_CONFIGURATION_NAME);
@@ -470,11 +483,11 @@ public class PackagePlugin implements Plugin<Project> {
       project.getComponents().named("java", AdhocComponentWithVariants.class, java -> {
         java.addVariantsFromConfiguration(shadedApiElements, variantDetails -> {
           variantDetails.mapToMavenScope("compile");
-          variantDetails.mapToOptional();
+          action.execute(variantDetails);
         });
         java.addVariantsFromConfiguration(shadedRuntimeElements, variantDetails -> {
           variantDetails.mapToMavenScope("runtime");
-          variantDetails.mapToOptional();
+          action.execute(variantDetails);
         });
       });
 
