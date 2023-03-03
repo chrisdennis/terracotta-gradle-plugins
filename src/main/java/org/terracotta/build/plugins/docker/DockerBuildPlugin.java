@@ -25,8 +25,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static java.util.Collections.emptyList;
+import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.toList;
+import static org.codehaus.groovy.runtime.DefaultGroovyMethods.plus;
 import static org.terracotta.build.PluginUtils.capitalize;
 import static org.terracotta.build.Utils.getLocalHostName;
 import static org.terracotta.build.Utils.mapOf;
@@ -81,11 +83,24 @@ public class DockerBuildPlugin implements Plugin<Project> {
 
     TaskProvider<Sync> dockerProcessReadme = project.getTasks().register("dockerProcessReadme", Sync.class, sync -> {
       sync.setDescription("Process Docker README.");
-      sync.from(buildExtension.getDockerReadme());
+      sync.from(buildExtension.getDocTemplates(), buildExtension.getDockerReadme());
       sync.into(project.getLayout().getBuildDirectory().dir("docker-readme"));
 
       sync.getInputs().property("projectVersion", (Callable<Object>) project::getVersion);
-      sync.expand(mapOf("version", project.getVersion()));
+      sync.expand(plus(
+          buildExtension.getDocMetadata().get(),
+          mapOf("version", project.getVersion(), "root", project.getLayout().getBuildDirectory().dir("docker-readme"))));
+    });
+
+    project.getTasks().register("dockerProcessSagDoc", Sync.class, sync -> {
+      sync.setDescription("Process SAG Doc.");
+      sync.from(buildExtension.getDocTemplates(), buildExtension.getDockerReadme(), buildExtension.getSagDocDirectory());
+      sync.into(project.getLayout().getBuildDirectory().dir("docker-sag-doc"));
+
+      sync.getInputs().property("projectVersion", (Callable<Object>) project::getVersion);
+      sync.expand(plus(
+          buildExtension.getDocMetadata().get(),
+          mapOf("version", project.getVersion(), "root", project.getLayout().getBuildDirectory().dir("docker-sag-doc"))));
     });
 
     project.getTasks().register("dockerTag", t -> {
@@ -188,6 +203,9 @@ public class DockerBuildPlugin implements Plugin<Project> {
     dockerBuild.getDockerFile().convention(dockerSourceBase.file("Dockerfile"));
     dockerBuild.getDockerReadme().convention(dockerSourceBase.file("README.md"));
     dockerBuild.getContentsDirectory().convention(dockerSourceBase.dir("contents"));
+    dockerBuild.getDocTemplates().convention(project.getLayout().getProjectDirectory().dir("../doc/templates"));
+    dockerBuild.getDocMetadata().convention(emptyMap());
+    dockerBuild.getSagDocDirectory().convention(project.getLayout().getProjectDirectory().dir("../doc/acr-data"));
 
     dockerBuild.getTags().convention(project.provider(() -> singletonList(project.getVersion().toString())));
     dockerBuild.getMetadata().put("gradle.build.host", getLocalHostName(project));

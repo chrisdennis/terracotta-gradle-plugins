@@ -39,4 +39,9 @@ public abstract class DockerBuildExtension {
   public abstract MapProperty<String, String> getMetadata();
 
   public abstract RegularFileProperty getDockerReadme();
+
+  public abstract DirectoryProperty getDocTemplates();
+  public abstract MapProperty<String, Object> getDocMetadata();
+
+  public abstract DirectoryProperty getSagDocDirectory();
 }
