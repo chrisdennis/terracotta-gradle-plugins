@@ -6,7 +6,6 @@ import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.attributes.Category;
 import org.gradle.api.credentials.PasswordCredentials;
-import org.gradle.api.file.ConfigurableFileTree;
 import org.gradle.api.file.Directory;
 import org.gradle.api.file.RegularFile;
 import org.gradle.api.plugins.ExtensionAware;
@@ -147,14 +146,7 @@ public class DockerBuildPlugin implements Plugin<Project> {
 
         readmePush.getRegistry().set(registry);
         readmePush.getRepositoryName().set(buildExtension.getImageName());
-        readmePush.getReadmeFile().fileProvider(dockerProcessReadme.map(s -> {
-          ConfigurableFileTree files = project.fileTree(s.getDestinationDir());
-          if (files.isEmpty()) {
-            return null;
-          } else {
-            return files.getSingleFile();
-          }
-        }));
+        readmePush.getReadmeFile().fileProvider(dockerProcessReadme.map(s -> buildExtension.getDockerReadme().map(f -> new File(s.getDestinationDir(), f.getAsFile().getName())).getOrNull()));
       });
     });
 
