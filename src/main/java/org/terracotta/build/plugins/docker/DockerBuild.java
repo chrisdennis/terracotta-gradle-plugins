@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static java.util.Collections.emptyMap;
 import static java.util.stream.Stream.of;
 
 public abstract class DockerBuild extends DockerTask {
@@ -54,6 +55,9 @@ public abstract class DockerBuild extends DockerTask {
       spec.args(getMetadata().get().entrySet().stream()
               .flatMap(e -> of("--label", e.getKey() + "=" + e.getValue()))
               .toArray());
+      spec.args(getBuildArgs().getOrElse(emptyMap()).entrySet().stream()
+          .flatMap(e -> of("--build-arg", e.getKey() + "=" + e.getValue()))
+          .toArray());
       spec.args(".");
     });
   }
@@ -69,6 +73,9 @@ public abstract class DockerBuild extends DockerTask {
 
   @Input
   public abstract MapProperty<String, String> getMetadata();
+
+  @Input
+  public abstract MapProperty<String, String> getBuildArgs();
 
   @Internal
   public Provider<String> getImageId() {
