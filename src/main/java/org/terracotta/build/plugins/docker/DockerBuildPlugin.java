@@ -78,6 +78,7 @@ public class DockerBuildPlugin implements Plugin<Project> {
               (dockerFile, environment) -> new File(environment.getDestinationDir(), dockerFile.getAsFile().getName())));
       build.getImageIdFile().set(imageIdFile);
       build.getMetadata().set(buildExtension.getMetadata());
+      build.getBuildArgs().set(buildExtension.getBuildArgs());
     });
 
     TaskProvider<Sync> dockerProcessReadme = project.getTasks().register("dockerProcessReadme", Sync.class, sync -> {
@@ -193,6 +194,7 @@ public class DockerBuildPlugin implements Plugin<Project> {
 
     Directory dockerSourceBase = project.getLayout().getProjectDirectory().dir("src/docker");
     dockerBuild.getDockerFile().convention(dockerSourceBase.file("Dockerfile"));
+    dockerBuild.getBuildArgs().convention(emptyMap());
     dockerBuild.getDockerReadme().convention(dockerSourceBase.file("README.md"));
     dockerBuild.getContentsDirectory().convention(dockerSourceBase.dir("contents"));
     dockerBuild.getDocTemplates().convention(project.getLayout().getProjectDirectory().dir("../doc/templates"));
