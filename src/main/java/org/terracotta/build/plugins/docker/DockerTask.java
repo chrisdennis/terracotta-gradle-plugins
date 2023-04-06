@@ -4,6 +4,7 @@ import org.gradle.api.Action;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.Task;
 import org.gradle.api.credentials.PasswordCredentials;
+import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.specs.Spec;
 import org.gradle.api.tasks.Input;
@@ -21,6 +22,7 @@ import java.util.function.Function;
 import static java.lang.Long.parseLong;
 import static java.lang.Math.toIntExact;
 import static java.lang.Thread.sleep;
+import static java.util.Collections.emptyMap;
 import static org.gradle.internal.Actions.composite;
 import static org.terracotta.build.ExecUtils.execQuietlyUnder;
 import static org.terracotta.build.ExecUtils.execUnder;
@@ -36,12 +38,21 @@ public abstract class DockerTask extends DefaultTask {
   @Input
   public abstract Property<String> getDocker();
 
+  @Input
+  public abstract MapProperty<String, String> getDockerEnv();
+
   public String docker(Action<ExecSpec> action) {
-    return execUnder(this, composite(exec -> exec.executable(getDocker().get()), action));
+    return execUnder(this, composite(exec -> {
+      exec.environment(getDockerEnv().getOrElse(emptyMap()));
+      exec.executable(getDocker().get());
+    }, action));
   }
 
   public String dockerQuietly(Action<ExecSpec> action) {
-    return execQuietlyUnder(this, composite(exec -> exec.executable(getDocker().get()), action));
+    return execQuietlyUnder(this, composite(exec -> {
+      exec.environment(getDockerEnv().getOrElse(emptyMap()));
+      exec.executable(getDocker().get());
+    }, action));
   }
 
   @Input
