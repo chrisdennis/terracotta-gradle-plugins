@@ -214,7 +214,8 @@ public class CopyrightPlugin implements Plugin<Project> {
                         } else {
                           return Stream.of(git(spec -> spec.args("diff-tree", "-z", "--no-commit-id", "--name-only", "-r",
                                           "--find-renames=100%", "--find-copies=100%",  "--diff-filter=cr", commit)).split("\0"))
-                                  .map(getProject().getRootProject()::file).filter(sourceFiles::contains).map(file -> new AbstractMap.SimpleImmutableEntry<>(file, year));
+                                  .filter(s -> !s.isEmpty()).map(getProject().getRootProject()::file).filter(sourceFiles::contains)
+                                  .map(file -> new AbstractMap.SimpleImmutableEntry<>(file, year));
                         }
                       }), matches(PORCELAIN_Z_STATUS_LINE, git(spec -> spec.args("status", "-z", "--porcelain", "--untracked-files=all", root)))
                       .map(line -> line.group(1)).map(getProject().getRootProject()::file).filter(sourceFiles::contains)
