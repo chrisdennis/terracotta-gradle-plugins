@@ -6,7 +6,7 @@ import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.file.Directory;
-import org.gradle.api.internal.project.ProjectInternal;
+import org.gradle.api.internal.artifacts.configurations.ConfigurationContainerInternal;
 import org.gradle.api.plugins.JvmEcosystemPlugin;
 import org.gradle.api.plugins.JvmTestSuitePlugin;
 import org.gradle.api.plugins.jvm.JvmTestSuite;
@@ -14,10 +14,9 @@ import org.gradle.api.plugins.jvm.internal.JvmPluginServices;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.Sync;
 import org.gradle.api.tasks.testing.Test;
-import org.gradle.internal.service.ServiceRegistry;
 import org.gradle.testing.base.TestingExtension;
-import org.terracotta.build.PluginUtils;
 
+import javax.inject.Inject;
 import java.nio.file.Files;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
@@ -40,17 +39,23 @@ public class AngelaPlugin implements Plugin<Project> {
   public static final String FRAMEWORK_CONFIGURATION_NAME = "angela";
   public static final String SERVER_PLUGINS_CONFIGURATION_NAME = "angelaServerPlugins";
 
+  private final JvmPluginServices jvmPluginServices;
+
+  @Inject
+  public AngelaPlugin(JvmPluginServices jvmPluginServices) {
+    this.jvmPluginServices = jvmPluginServices;
+  }
+
   @Override
   public void apply(Project project) {
     project.getPlugins().apply(JvmEcosystemPlugin.class);
 
-    ServiceRegistry projectServices = ((ProjectInternal) project).getServices();
-    JvmPluginServices jvmPluginServices = projectServices.get(JvmPluginServices.class);
+    ConfigurationContainerInternal configurations = (ConfigurationContainerInternal) project.getConfigurations();
 
     Provider<Directory> angelaDir = project.getLayout().getBuildDirectory().dir("angela");
     Provider<Directory> customKitDir = angelaDir.map(d -> d.dir("custom-tc-db-kit"));
 
-    Configuration angela = PluginUtils.createBucket(project, FRAMEWORK_CONFIGURATION_NAME);
+    Configuration angela = configurations.bucket(FRAMEWORK_CONFIGURATION_NAME);
     angela.defaultDependencies(defaultDeps -> {
       defaultDeps.add(project.getDependencyFactory().create("org.terracotta", "angela", "[3,)"));
     });
@@ -65,12 +70,11 @@ public class AngelaPlugin implements Plugin<Project> {
       });
     });
 
-    Provider<Configuration> kit = project.getConfigurations().register(KIT_CONFIGURATION_NAME);
-
-    Configuration serverPlugins = PluginUtils.createBucket(project, SERVER_PLUGINS_CONFIGURATION_NAME);
-    Configuration serverPluginsClasspath = jvmPluginServices.createResolvableConfiguration(SERVER_PLUGINS_CONFIGURATION_NAME + "Classpath", builder -> {
-      builder.extendsFrom(serverPlugins).requiresJavaLibrariesRuntime();
-    });
+    Configuration kit = configurations.resolvableBucket(KIT_CONFIGURATION_NAME);
+    Configuration serverPlugins = configurations.bucket(SERVER_PLUGINS_CONFIGURATION_NAME);
+    Configuration serverPluginsClasspath = ((ConfigurationContainerInternal) project.getConfigurations())
+            .resolvable(SERVER_PLUGINS_CONFIGURATION_NAME + "Classpath").extendsFrom(serverPlugins);
+    jvmPluginServices.configureAsRuntimeClasspath(serverPluginsClasspath);
 
     Provider<Sync> customKitPreparation = project.getTasks().register("angelaCustomKitPreparation", Sync.class, task -> {
       task.onlyIf(t -> !serverPluginsClasspath.isEmpty());
@@ -108,7 +112,7 @@ public class AngelaPlugin implements Plugin<Project> {
         @Override
         public void execute(Task t) {
           if (serverPluginsClasspath.isEmpty()) {
-            task.systemProperty("angela.kitInstallationDir", kit.get().getSingleFile().getAbsolutePath());
+            task.systemProperty("angela.kitInstallationDir", kit.getSingleFile().getAbsolutePath());
           } else {
             task.systemProperty("angela.kitInstallationDir", customKitDir.get().getAsFile().getAbsolutePath());
           }
