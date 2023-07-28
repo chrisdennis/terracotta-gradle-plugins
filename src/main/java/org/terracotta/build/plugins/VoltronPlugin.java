@@ -19,15 +19,15 @@ import org.gradle.api.plugins.jvm.JvmTestSuite;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
 import org.gradle.api.tasks.bundling.Jar;
-import org.gradle.internal.component.external.model.ImmutableCapability;
+import org.gradle.internal.component.external.model.DefaultImmutableCapability;
 import org.gradle.internal.component.external.model.ProjectDerivedCapability;
-import org.gradle.internal.fingerprint.NameOnlyInputNormalizer;
 import org.gradle.testing.base.TestingExtension;
 
 import java.io.File;
 import java.util.jar.Attributes;
 import java.util.stream.Collectors;
 
+import static java.util.stream.Collectors.toSet;
 import static org.gradle.api.plugins.JavaPlugin.RUNTIME_CLASSPATH_CONFIGURATION_NAME;
 import static org.terracotta.build.Utils.mapOf;
 
@@ -85,7 +85,8 @@ public class VoltronPlugin implements Plugin<Project> {
      */
     project.getTasks().named(JavaPlugin.JAR_TASK_NAME, Jar.class, jar -> {
       Configuration runtimeClasspath = project.getConfigurations().getByName(RUNTIME_CLASSPATH_CONFIGURATION_NAME);
-      jar.getInputs().files(runtimeClasspath).withPropertyName(RUNTIME_CLASSPATH_CONFIGURATION_NAME).withNormalizer(NameOnlyInputNormalizer.class);
+      jar.getInputs().property(RUNTIME_CLASSPATH_CONFIGURATION_NAME, runtimeClasspath.getElements()
+              .map(files -> files.stream().map(f -> f.getAsFile().getName()).collect(toSet())));
       //noinspection Convert2Lambda
       jar.doFirst(new Action<Task>() {
         @Override
@@ -106,7 +107,7 @@ public class VoltronPlugin implements Plugin<Project> {
     if (dependency instanceof ProjectDependency) {
       return new ProjectDerivedCapability(((ProjectDependency) dependency).getDependencyProject(), XML_CONFIG_VARIANT_NAME);
     } else {
-      return new ImmutableCapability(dependency.getGroup(), dependency.getName() + "-" + XML_CONFIG_VARIANT_NAME, null);
+      return new DefaultImmutableCapability(dependency.getGroup(), dependency.getName() + "-" + XML_CONFIG_VARIANT_NAME, null);
     }
   }
 }
