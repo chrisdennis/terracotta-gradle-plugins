@@ -22,7 +22,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.util.Collections.emptyMap;
+import static java.util.Collections.singletonList;
 import static java.util.stream.Stream.of;
 
 public abstract class DockerBuild extends DockerTask {
@@ -86,6 +89,16 @@ public abstract class DockerBuild extends DockerTask {
     Path path = file.getAsFile().toPath();
     try {
       return StandardCharsets.UTF_8.decode(ByteBuffer.wrap(Files.readAllBytes(path))).toString().trim();
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
+  protected static void writeImageId(FileSystemLocation file, String imageId) {
+    Path path = file.getAsFile().toPath();
+    try {
+      Files.createDirectories(path.getParent());
+      Files.write(path, singletonList(imageId), CREATE, TRUNCATE_EXISTING);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

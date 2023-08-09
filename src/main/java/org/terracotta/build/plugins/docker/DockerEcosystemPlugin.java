@@ -1,10 +1,14 @@
 package org.terracotta.build.plugins.docker;
 
+import groovy.lang.Closure;
 import org.gradle.api.NamedDomainObjectProvider;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.Configuration;
+import org.gradle.api.artifacts.Dependency;
+import org.gradle.api.artifacts.dsl.DependencyHandler;
 import org.gradle.api.attributes.Category;
+import org.gradle.api.file.RegularFile;
 import org.gradle.api.provider.Provider;
 
 import java.util.Map;
@@ -34,6 +38,16 @@ public class DockerEcosystemPlugin implements Plugin<Project> {
     });
 
     project.getExtensions().create("docker", DockerExtension.class, dockerImageIds);
+
+    DependencyHandler dependencies = project.getDependencies();
+    dependencies.getExtensions().add("external", new Closure<Dependency>(dependencies, dependencies) {
+
+      Dependency doCall(String name, String imageId) {
+        Provider<RegularFile> imageIdFile = project.getLayout().getBuildDirectory().file(name + ".iid");
+        DockerBuild.writeImageId(imageIdFile.get(), imageId);
+        return ((DependencyHandler) getOwner()).create(project.files(imageIdFile));
+      }
+    });
   }
 
   public static class DockerExtension {
