@@ -289,7 +289,7 @@ public class PackagePlugin implements Plugin<Project> {
       osgiExtension.getClasspath().from(packagedRuntimeClasspath);
       osgiExtension.getSources().from(sources);
 
-      osgiExtension.instruction(Constants.BUNDLE_VERSION, new MavenVersion(project.getVersion().toString()).getOSGiVersion().toString());
+      osgiExtension.instructions.put(Constants.BUNDLE_VERSION, new MavenVersion(project.getVersion().toString()).getOSGiVersion().toString());
     });
 
     project.getComponents().named("java", AdhocComponentWithVariants.class, java -> {
@@ -333,20 +333,12 @@ public class PackagePlugin implements Plugin<Project> {
       jarTask.getInputs().files(sources).withPropertyName("osgi.sources");
       jarTask.getInputs().property("osgi.instructions", (Callable<Map<String, String>>) instructions::get);
 
-      jarTask.getExtensions().add("osgi", this);
+      jarTask.getExtensions().add(OsgiManifestJarExtension.class, "osgi", this);
       jarTask.doLast("buildManifest", new BuildAction());
     }
 
-    public void enabled(boolean value) {
-      enabled.set(value);
-    }
-
-    public void instruction(String key, String value) {
-      instructions.put(key, value);
-    }
-
-    public void instruction(String key, Provider<String> value) {
-      instructions.put(key, value);
+    public Property<Boolean> getEnabled() {
+      return enabled;
     }
 
     @Input

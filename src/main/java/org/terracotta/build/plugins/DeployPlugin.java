@@ -200,22 +200,22 @@ public class DeployPlugin implements Plugin<Project> {
       this.mavenPublications = project.getExtensions().getByType(PublishingExtension.class).getPublications().withType(MavenPublication.class);
     }
 
-    void setGroupId(String groupId) {
+    public void setGroupId(String groupId) {
       mavenPublications.configureEach(mavenPublication -> mavenPublication.setGroupId(groupId));
     }
 
-    void setArtifactId(String artifactId) {
+    public void setArtifactId(String artifactId) {
       project.getExtensions().configure(BasePluginExtension.class, basePluginExtension -> {
         basePluginExtension.getArchivesName().value(artifactId);
       });
       mavenPublications.configureEach(mavenPublication -> mavenPublication.setArtifactId(artifactId));
     }
 
-    void setName(String name) {
+    public void setName(String name) {
       mavenPublications.configureEach(mavenPublication -> mavenPublication.getPom().getName().set(name));
     }
 
-    void setDescription(String description) {
+    public void setDescription(String description) {
       mavenPublications.configureEach(mavenPublication -> mavenPublication.getPom().getDescription().set(description));
     }
   }
