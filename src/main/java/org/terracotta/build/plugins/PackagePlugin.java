@@ -10,6 +10,10 @@ import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar;
 import org.gradle.api.attributes.AttributeCompatibilityRule;
 import org.gradle.api.attributes.AttributesSchema;
 import org.gradle.api.attributes.CompatibilityCheckDetails;
+import org.gradle.api.attributes.HasConfigurableAttributes;
+import org.gradle.api.internal.artifacts.JavaEcosystemSupport;
+import org.gradle.api.internal.artifacts.configurations.ConfigurationContainerInternal;
+import org.gradle.api.plugins.jvm.internal.JvmEcosystemAttributesDetails;
 import org.terracotta.build.Utils;
 import org.terracotta.build.plugins.JavaVersionPlugin.JavaVersions;
 import groovy.lang.Closure;
@@ -38,7 +42,6 @@ import org.gradle.api.internal.artifacts.configurations.ResolutionStrategyIntern
 import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.api.plugins.BasePlugin;
 import org.gradle.api.plugins.JavaBasePlugin;
-import org.gradle.api.plugins.jvm.internal.JvmEcosystemAttributesDetails;
 import org.gradle.api.plugins.jvm.internal.JvmPluginServices;
 import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
@@ -60,6 +63,7 @@ import org.gradle.jvm.toolchain.JavaLanguageVersion;
 import org.gradle.language.base.plugins.LifecycleBasePlugin;
 import org.gradle.util.internal.ClosureBackedAction;
 
+import javax.inject.Inject;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -77,6 +81,7 @@ import java.util.stream.Collectors;
 import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toSet;
+import static org.gradle.api.artifacts.Dependency.DEFAULT_CONFIGURATION;
 import static org.gradle.api.attributes.DocsType.JAVADOC;
 import static org.gradle.api.attributes.DocsType.SOURCES;
 import static org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE;
@@ -89,9 +94,7 @@ import static org.gradle.api.plugins.JavaPlugin.JAVADOC_ELEMENTS_CONFIGURATION_N
 import static org.gradle.api.plugins.JavaPlugin.JAVADOC_TASK_NAME;
 import static org.gradle.api.plugins.JavaPlugin.RUNTIME_ONLY_CONFIGURATION_NAME;
 import static org.gradle.api.plugins.JavaPlugin.SOURCES_ELEMENTS_CONFIGURATION_NAME;
-import static org.terracotta.build.PluginUtils.bucket;
 import static org.terracotta.build.PluginUtils.capitalize;
-import static org.terracotta.build.PluginUtils.createBucket;
 import static org.terracotta.build.Utils.mapOf;
 
 /**
@@ -99,26 +102,34 @@ import static org.terracotta.build.Utils.mapOf;
  */
 public class PackagePlugin implements Plugin<Project> {
 
-  public static final String UNSHADED_JAVA_RUNTIME = "unshaded-java-runtime";
+  public static final String UNPACKAGED_JAVA_RUNTIME = "unpackaged-java-runtime";
 
   public static final String CONTENTS_CONFIGURATION_NAME = "contents";
   public static final String CONTENTS_API_CONFIGURATION_NAME = "contentsApi";
-  public static final String CONTENTS_RUNTIME_ELEMENTS_CONFIGURATION_NAME = "contentsRuntimeElements";
+  public static final String CONTENTS_RUNTIME_CLASSPATH_CONFIGURATION_NAME = "contentsRuntimeClasspath";
+  public static final String CONTENTS_SOURCES_CONFIGURATION_NAME = "contentsSources";
   public static final String CONTENTS_SOURCES_ELEMENTS_CONFIGURATION_NAME = "contentsSourcesElements";
 
   public static final String PROVIDED_CONFIGURATION_NAME = "provided";
 
-  public static final String UNSHADED_API_ELEMENTS_CONFIGURATION_NAME = "unshadedApiElements";
-  public static final String UNSHADED_RUNTIME_ELEMENTS_CONFIGURATION_NAME = "unshadedRuntimeElements";
-  public static final String UNSHADED_RUNTIME_CLASSPATH_CONFIGURATION_NAME = "unshadedRuntimeClasspath";
+  public static final String UNPACKAGED_API_ELEMENTS_CONFIGURATION_NAME = "unpackagedApiElements";
+  public static final String UNPACKAGED_RUNTIME_ELEMENTS_CONFIGURATION_NAME = "unpackagedRuntimeElements";
+  public static final String UNPACKAGED_RUNTIME_CLASSPATH_CONFIGURATION_NAME = "unpackagedRuntimeClasspath";
 
-  public static final String SHADED_API_ELEMENTS_CONFIGURATION_NAME = "shadedApiElements";
-  public static final String SHADED_RUNTIME_ELEMENTS_CONFIGURATION_NAME = "shadedRuntimeElements";
-  public static final String SHADED_RUNTIME_CLASSPATH_CONFIGURATION_NAME = "shadedRuntimeClasspath";
+  public static final String PACKAGED_API_ELEMENTS_CONFIGURATION_NAME = "packagedApiElements";
+  public static final String PACKAGED_RUNTIME_ELEMENTS_CONFIGURATION_NAME = "packagedRuntimeElements";
+  public static final String PACKAGED_RUNTIME_CLASSPATH_CONFIGURATION_NAME = "packagedRuntimeClasspath";
 
   public static final String SOURCES_TASK_NAME = "sources";
 
   private static final Pattern OSGI_EXPORT_PATTERN = Pattern.compile("([^;,]+((?:;[^,:=]+:?=\"[^\"]+\")*))(?:,|$)");
+
+  private final JvmPluginServices jvmPluginServices;
+
+  @Inject
+  public PackagePlugin(JvmPluginServices jvmPluginServices) {
+    this.jvmPluginServices = jvmPluginServices;
+  }
 
   @Override
   public void apply(Project project) {
@@ -145,41 +156,45 @@ public class PackagePlugin implements Plugin<Project> {
   private void createDefaultPackage(Project project) {
     project.getPlugins().apply(JavaVersionPlugin.class);
 
-    ServiceRegistry projectServices = ((ProjectInternal) project).getServices();
-    JvmPluginServices jvmPluginServices = projectServices.get(JvmPluginServices.class);
-
     JavaVersions javaVersions = project.getExtensions().getByType(JavaVersions.class);
 
-    Configuration contentsApi = createBucket(project, CONTENTS_API_CONFIGURATION_NAME);
-    Configuration contents = createBucket(project, CONTENTS_CONFIGURATION_NAME).extendsFrom(contentsApi);
+    ConfigurationContainerInternal configurations = (ConfigurationContainerInternal) project.getConfigurations();
 
-    Configuration contentsRuntimeElements = jvmPluginServices.createResolvableConfiguration(CONTENTS_RUNTIME_ELEMENTS_CONFIGURATION_NAME, builder -> builder
-                    .extendsFrom(contents).requiresJavaLibrariesRuntime())
+    Configuration contentsApi = configurations.bucket(CONTENTS_API_CONFIGURATION_NAME)
+            .setDescription("API dependencies for the package contents.");
+    Configuration contents = configurations.bucket(CONTENTS_CONFIGURATION_NAME).extendsFrom(contentsApi)
+            .setDescription("Implementation dependencies for the package contents.");
+
+    Configuration contentsRuntimeClasspath = configurations.resolvable(CONTENTS_RUNTIME_CLASSPATH_CONFIGURATION_NAME).extendsFrom(contents)
+            .setDescription("Runtime classpath of the package contents.")
             .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt)));
+    jvmPluginServices.configureAsRuntimeClasspath(contentsRuntimeClasspath);
 
     /*
      * The variant metadata rules are not complex enough, nor applied uniformly enough to give us the "transient sources"
      * configuration that we need. Instead, we populate the contentSourcesElements configuration using the resolved
      * artifacts of the shadow contents configuration.
      */
-    Configuration contentsSourcesElements = jvmPluginServices.createResolvableConfiguration(CONTENTS_SOURCES_ELEMENTS_CONFIGURATION_NAME, builder ->
-            builder.requiresAttributes(refiner -> refiner.documentation(SOURCES))).withDependencies(config -> {
-      contentsRuntimeElements.getResolvedConfiguration().getResolvedArtifacts().forEach(resolvedArtifact -> {
-        ComponentIdentifier id = resolvedArtifact.getId().getComponentIdentifier();
-        if (id instanceof ProjectComponentIdentifier) {
-          ProjectComponentIdentifier projectId = (ProjectComponentIdentifier) id;
-          config.add(project.getDependencies().create(project.project(projectId.getProjectPath())));
-        } else if (id instanceof ModuleComponentIdentifier) {
-          ModuleComponentIdentifier moduleId = (ModuleComponentIdentifier) id;
-          config.add(project.getDependencies().create(Utils.mapOf(
-                  "group", moduleId.getGroup(),
-                  "name", moduleId.getModule(),
-                  "version", moduleId.getVersion())));
-        } else {
-          throw new GradleException("Unsupported component identifier type: " + id);
-        }
-      });
-    }).resolutionStrategy(resolutionStrategy -> ((ResolutionStrategyInternal) resolutionStrategy).assumeFluidDependencies());
+    Configuration contentsSources = configurations.bucket(CONTENTS_SOURCES_CONFIGURATION_NAME).setVisible(false)
+            .withDependencies(config -> contentsRuntimeClasspath.getResolvedConfiguration().getResolvedArtifacts().forEach(resolvedArtifact -> {
+              ComponentIdentifier id = resolvedArtifact.getId().getComponentIdentifier();
+              if (id instanceof ProjectComponentIdentifier) {
+                ProjectComponentIdentifier projectId = (ProjectComponentIdentifier) id;
+                config.add(project.getDependencies().create(project.project(projectId.getProjectPath())));
+              } else if (id instanceof ModuleComponentIdentifier) {
+                ModuleComponentIdentifier moduleId = (ModuleComponentIdentifier) id;
+                config.add(project.getDependencies().create(Utils.mapOf(
+                        "group", moduleId.getGroup(),
+                        "name", moduleId.getModule(),
+                        "version", moduleId.getVersion())));
+              } else {
+                throw new GradleException("Unsupported component identifier type: " + id);
+              }
+            }));
+    Configuration contentsSourcesElements = configureAttributes(configurations.resolvable(CONTENTS_SOURCES_ELEMENTS_CONFIGURATION_NAME)
+            .setDescription("Source artifacts for the package contents.").extendsFrom(contentsSources), details -> details.documentation(SOURCES))
+            .resolutionStrategy(resolutionStrategy -> ((ResolutionStrategyInternal) resolutionStrategy).assumeFluidDependencies());
+
 
     Provider<FileCollection> sourcesTree = project.provider(() -> contentsSourcesElements.getResolvedConfiguration().getLenientConfiguration().getAllModuleDependencies().stream().flatMap(d -> d.getModuleArtifacts().stream())
             .map(artifact -> {
@@ -197,74 +212,89 @@ public class PackagePlugin implements Plugin<Project> {
             }).reduce(FileTree::plus).orElse(project.files().getAsFileTree()));
 
     TaskProvider<Sync> sources = project.getTasks().register(SOURCES_TASK_NAME, Sync.class, sync -> {
-      sync.setDescription("Collects the sources contributing to this shaded artifact.");
+      sync.setDescription("Collects the sources contributing to this packaged artifact.");
       sync.setGroup(DOCUMENTATION_GROUP);
       sync.dependsOn(contentsSourcesElements);
       sync.from(sourcesTree, spec -> spec.exclude("META-INF/**"));
       sync.into(project.getLayout().getBuildDirectory().dir("sources"));
     });
 
-    Configuration api = createBucket(project, API_CONFIGURATION_NAME);
-    Configuration implementation = createBucket(project, IMPLEMENTATION_CONFIGURATION_NAME).extendsFrom(api);
-    Configuration compileOnlyApi = createBucket(project, COMPILE_ONLY_API_CONFIGURATION_NAME);
-    Configuration runtimeOnly = createBucket(project, RUNTIME_ONLY_CONFIGURATION_NAME);
-    Configuration provided = createBucket(project, PROVIDED_CONFIGURATION_NAME);
+    Configuration api = configurations.bucket(API_CONFIGURATION_NAME)
+            .setDescription("API dependencies for the packaged artifact.");
+    Configuration implementation = configurations.bucket(IMPLEMENTATION_CONFIGURATION_NAME).extendsFrom(api)
+            .setDescription("Implementation dependencies for the packaged artifact.");
+    Configuration compileOnlyApi = configurations.bucket(COMPILE_ONLY_API_CONFIGURATION_NAME)
+            .setDescription("Compile-only API dependencies for packaged artifact.");
+    Configuration runtimeOnly = configurations.bucket(RUNTIME_ONLY_CONFIGURATION_NAME)
+            .setDescription("Runtime-only dependencies for the packaged artifact.");
+    Configuration provided = configurations.bucket(PROVIDED_CONFIGURATION_NAME)
+            .setDescription("'Provided' API dependencies for the packaged artifact.");
 
-
-    jvmPluginServices.createOutgoingElements(UNSHADED_API_ELEMENTS_CONFIGURATION_NAME, builder -> builder
-                    .extendsFrom(api, compileOnlyApi, contentsApi).providesApi()
-                    .providesAttributes(JvmEcosystemAttributesDetails::withExternalDependencies))
+    configureAttributes(configurations.consumable(UNPACKAGED_API_ELEMENTS_CONFIGURATION_NAME)
+            .setDescription("API elements for the unpackaged contents.")
+            .extendsFrom(api, compileOnlyApi, contentsApi), details -> details.apiUsage().library().asJar().withExternalDependencies())
             .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt)));
-    jvmPluginServices.createOutgoingElements(UNSHADED_RUNTIME_ELEMENTS_CONFIGURATION_NAME, builder -> builder
-                    .extendsFrom(implementation, runtimeOnly, contents).providesAttributes(JvmEcosystemAttributesDetails::withExternalDependencies))
+
+    configureAttributes(configurations.consumable(UNPACKAGED_RUNTIME_ELEMENTS_CONFIGURATION_NAME)
+            .setDescription("Runtime elements for the unpackaged contents.")
+            .extendsFrom(implementation, runtimeOnly, contents), details -> details.library().asJar().withExternalDependencies())
             .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt))
-                    .attribute(Usage.USAGE_ATTRIBUTE, project.getObjects().named(Usage.class, UNSHADED_JAVA_RUNTIME)));
-    Configuration unshadedRuntimeClasspath = jvmPluginServices.createResolvableConfiguration(UNSHADED_RUNTIME_CLASSPATH_CONFIGURATION_NAME, builder -> builder
-                    .extendsFrom(implementation, runtimeOnly).requiresAttributes(JvmEcosystemAttributesDetails::withExternalDependencies))
+                    .attribute(Usage.USAGE_ATTRIBUTE, project.getObjects().named(Usage.class, UNPACKAGED_JAVA_RUNTIME)));
+
+    Configuration unpackagedRuntimeClasspath = configureAttributes(configurations.resolvable(UNPACKAGED_RUNTIME_CLASSPATH_CONFIGURATION_NAME)
+            .setDescription("Runtime classpath of the unpackaged contents.")
+            .extendsFrom(implementation, runtimeOnly), details -> details.withExternalDependencies())
             .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt))
-                    .attribute(Usage.USAGE_ATTRIBUTE, project.getObjects().named(Usage.class, UNSHADED_JAVA_RUNTIME)));
+                    .attribute(Usage.USAGE_ATTRIBUTE, project.getObjects().named(Usage.class, UNPACKAGED_JAVA_RUNTIME)));
 
     TaskProvider<ShadowJar> shadowJar = project.getTasks().register(JAR_TASK_NAME, ShadowJar.class, shadow -> {
-      shadow.setDescription("Assembles a jar archive containing the shaded classes.");
+      shadow.setDescription("Assembles a jar archive containing the packaged classes.");
       shadow.setGroup(BasePlugin.BUILD_GROUP);
 
-      shadow.setConfigurations(Collections.singletonList(contentsRuntimeElements));
+      shadow.setConfigurations(Collections.singletonList(contentsRuntimeClasspath));
 
       shadow.mergeServiceFiles();
 
       shadow.exclude("META-INF/MANIFEST.MF");
     });
 
-    Configuration shadedApiElements = jvmPluginServices.createOutgoingElements(SHADED_API_ELEMENTS_CONFIGURATION_NAME, builder -> builder
-                    .extendsFrom(api, compileOnlyApi).artifact(shadowJar).published().providesApi()
-                    .providesAttributes(JvmEcosystemAttributesDetails::withEmbeddedDependencies))
+    configurations.named(DEFAULT_CONFIGURATION).configure(c -> c.outgoing(o -> o.artifact(shadowJar)));
+
+    Configuration packagedApiElements = configureAttributes(configurations.consumable(PACKAGED_API_ELEMENTS_CONFIGURATION_NAME)
+            .setDescription("API elements for the packaged artifact.")
+            .extendsFrom(api, compileOnlyApi), details -> details.apiUsage().library().asJar().withEmbeddedDependencies())
             .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt)));
-    Configuration shadedRuntimeElements = jvmPluginServices.createOutgoingElements(SHADED_RUNTIME_ELEMENTS_CONFIGURATION_NAME, builder -> builder
-                    .extendsFrom(implementation, runtimeOnly).artifact(shadowJar).published().providesRuntime()
-                    .providesAttributes(JvmEcosystemAttributesDetails::withEmbeddedDependencies))
+    packagedApiElements.outgoing(o -> o.artifact(shadowJar));
+
+    Configuration packagedRuntimeElements = configureAttributes(configurations.consumable(PACKAGED_RUNTIME_ELEMENTS_CONFIGURATION_NAME)
+            .setDescription("Runtime elements for the packaged artifact.")
+            .extendsFrom(implementation, runtimeOnly), details -> details.withEmbeddedDependencies().runtimeUsage().library().asJar())
             .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt)));
-    Configuration shadedRuntimeClasspath = jvmPluginServices.createResolvableConfiguration(SHADED_RUNTIME_CLASSPATH_CONFIGURATION_NAME, builder -> builder
-                    .extendsFrom(implementation, runtimeOnly).requiresAttributes(JvmEcosystemAttributesDetails::withEmbeddedDependencies).requiresJavaLibrariesRuntime())
+    packagedRuntimeElements.outgoing(o -> o.artifact(shadowJar));
+
+    Configuration packagedRuntimeClasspath = configureAttributes(configurations.resolvable(PACKAGED_RUNTIME_CLASSPATH_CONFIGURATION_NAME)
+            .setDescription("Runtime classpath of the packaged artifact.")
+            .extendsFrom(implementation, runtimeOnly), details -> details.withEmbeddedDependencies().runtimeUsage().library().asJar())
             .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt)));
 
-    contentsRuntimeElements.getIncoming().beforeResolve(config -> {
-      unshadedRuntimeClasspath.getResolvedConfiguration().getResolvedArtifacts().forEach(resolvedArtifact -> {
+    contentsRuntimeClasspath.getIncoming().beforeResolve(config -> {
+      unpackagedRuntimeClasspath.getResolvedConfiguration().getResolvedArtifacts().forEach(resolvedArtifact -> {
         ModuleVersionIdentifier identifier = resolvedArtifact.getModuleVersion().getId();
-        contentsRuntimeElements.exclude(mapOf(String.class, String.class, "group", identifier.getGroup(), "module", identifier.getName()));
+        contentsRuntimeClasspath.exclude(mapOf(String.class, String.class, "group", identifier.getGroup(), "module", identifier.getName()));
       });
     });
 
     shadowJar.configure(shadow -> {
       OsgiManifestJarExtension osgiExtension = new OsgiManifestJarExtension(shadow);
-      osgiExtension.getClasspath().from(shadedRuntimeClasspath);
+      osgiExtension.getClasspath().from(packagedRuntimeClasspath);
       osgiExtension.getSources().from(sources);
 
       osgiExtension.instruction(Constants.BUNDLE_VERSION, new MavenVersion(project.getVersion().toString()).getOSGiVersion().toString());
     });
 
     project.getComponents().named("java", AdhocComponentWithVariants.class, java -> {
-      java.addVariantsFromConfiguration(shadedApiElements, variantDetails -> variantDetails.mapToMavenScope("compile"));
-      java.addVariantsFromConfiguration(shadedRuntimeElements, variantDetails -> variantDetails.mapToMavenScope("runtime"));
+      java.addVariantsFromConfiguration(packagedApiElements, variantDetails -> variantDetails.mapToMavenScope("compile"));
+      java.addVariantsFromConfiguration(packagedRuntimeElements, variantDetails -> variantDetails.mapToMavenScope("runtime"));
     });
 
     project.getTasks().named(LifecycleBasePlugin.ASSEMBLE_TASK_NAME).configure(task -> {
@@ -385,7 +415,7 @@ public class PackagePlugin implements Plugin<Project> {
         exports.add(userExportPackage);
 
         /*
-         * Step 2: derive instructions from any shade input JAR that has a OSGi manifest.
+         * Step 2: derive instructions from any input JAR that has an OSGi manifest.
          */
         for (FileCollection files : configurations) {
           Configuration config = (Configuration) files;
@@ -436,15 +466,16 @@ public class PackagePlugin implements Plugin<Project> {
     }
   }
 
-  public static class PackageProjectExtension {
+  public class PackageProjectExtension {
 
     private final Project project;
-    private final JvmPluginServices jvmPluginServices;
 
     public PackageProjectExtension(Project project) {
       this.project = project;
-      ServiceRegistry projectServices = ((ProjectInternal) project).getServices();
-      this.jvmPluginServices = projectServices.get(JvmPluginServices.class);
+    }
+
+    private ConfigurationContainerInternal configurations() {
+      return (ConfigurationContainerInternal) project.getConfigurations();
     }
 
     public void withOptionalFeature(String feature) {
@@ -452,10 +483,14 @@ public class PackagePlugin implements Plugin<Project> {
     }
 
     public void withOptionalFeature(String feature, Action<ConfigurationVariantDetails> action) {
-      Configuration api = createFeatureBucket(project, feature, API_CONFIGURATION_NAME);
-      Configuration implementation = createFeatureBucket(project, feature, IMPLEMENTATION_CONFIGURATION_NAME).extendsFrom(api);
-      Configuration compileOnlyApi = createFeatureBucket(project, feature, COMPILE_ONLY_API_CONFIGURATION_NAME);
-      Configuration runtimeOnly = createFeatureBucket(project, feature, RUNTIME_ONLY_CONFIGURATION_NAME);
+      Configuration api = createFeatureBucket(feature, API_CONFIGURATION_NAME)
+              .setDescription("API dependencies for the packaged artifact '" + feature + "' feature.");
+      Configuration implementation = createFeatureBucket(feature, IMPLEMENTATION_CONFIGURATION_NAME).extendsFrom(api)
+              .setDescription("Implementation dependencies for the packaged artifact '" + feature + "' feature.");
+      Configuration compileOnlyApi = createFeatureBucket(feature, COMPILE_ONLY_API_CONFIGURATION_NAME)
+              .setDescription("Compile-only dependencies for the packaged artifact '" + feature + "' feature.");
+      Configuration runtimeOnly = createFeatureBucket(feature, RUNTIME_ONLY_CONFIGURATION_NAME)
+              .setDescription("Runtime-only dependencies for the packaged artifact '" + feature + "' feature.");
 
       Set<String> groupIds = project.getExtensions().getByType(PublishingExtension.class).getPublications().withType(MavenPublication.class).stream().map(MavenPublication::getGroupId).collect(toSet());
       Set<String> artifactIds = project.getExtensions().getByType(PublishingExtension.class).getPublications().withType(MavenPublication.class).stream().map(MavenPublication::getArtifactId).collect(toSet());
@@ -467,54 +502,66 @@ public class PackagePlugin implements Plugin<Project> {
       if (artifactIds.size() != 1) {
         throw new IllegalArgumentException("Publication artifactId is unclear: " + artifactIds);
       }
-      String capability = artifactIds.iterator().next() + "-" + feature;
+      String featureCapability = group + ":" + artifactIds.iterator().next() + "-" + feature + ":" + project.getVersion();
 
       JavaVersions javaVersions = project.getExtensions().getByType(JavaVersions.class);
 
-      Configuration shadedApiElements = jvmPluginServices.createOutgoingElements(camelPrefix(feature, SHADED_API_ELEMENTS_CONFIGURATION_NAME), builder ->
-                      builder.extendsFrom(api, compileOnlyApi).published().providesApi().capability(group, capability, project.getVersion().toString())
-                              .providesAttributes(JvmEcosystemAttributesDetails::withEmbeddedDependencies).artifact(project.getTasks().named(JAR_TASK_NAME)))
+      Configuration packagedApiElements = configureAttributes(configurations().consumable(camelPrefix(feature, PACKAGED_API_ELEMENTS_CONFIGURATION_NAME))
+              .setDescription("API elements for the packaged artifact '" + feature + "' feature.")
+              .extendsFrom(api, compileOnlyApi), details -> details.apiUsage().library().asJar().withEmbeddedDependencies())
               .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt)));
-      Configuration shadedRuntimeElements = jvmPluginServices.createOutgoingElements(camelPrefix(feature, SHADED_RUNTIME_ELEMENTS_CONFIGURATION_NAME), builder ->
-                      builder.extendsFrom(implementation, runtimeOnly).published().providesRuntime().capability(group, capability, project.getVersion().toString())
-                              .providesAttributes(JvmEcosystemAttributesDetails::withEmbeddedDependencies).artifact(project.getTasks().named(JAR_TASK_NAME)))
+      packagedApiElements.outgoing(o -> {
+        o.capability(featureCapability);
+        o.artifact(project.getTasks().named(JAR_TASK_NAME));
+      });
+
+      Configuration packagedRuntimeElements = configureAttributes(configurations().consumable(camelPrefix(feature, PACKAGED_RUNTIME_ELEMENTS_CONFIGURATION_NAME))
+              .setDescription("Runtime elements for the packaged artifact '" + feature + "' feature variant.")
+              .extendsFrom(implementation, runtimeOnly), details -> details.withEmbeddedDependencies().runtimeUsage().library().asJar())
               .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt)));
+      packagedRuntimeElements.outgoing(outgoing -> {
+        outgoing.capability(featureCapability);
+        outgoing.artifact(project.getTasks().named(JAR_TASK_NAME));
+      });
 
       project.getComponents().named("java", AdhocComponentWithVariants.class, java -> {
-        java.addVariantsFromConfiguration(shadedApiElements, variantDetails -> {
+        java.addVariantsFromConfiguration(packagedApiElements, variantDetails -> {
           variantDetails.mapToMavenScope("compile");
           action.execute(variantDetails);
         });
-        java.addVariantsFromConfiguration(shadedRuntimeElements, variantDetails -> {
+        java.addVariantsFromConfiguration(packagedRuntimeElements, variantDetails -> {
           variantDetails.mapToMavenScope("runtime");
           action.execute(variantDetails);
         });
       });
 
-      jvmPluginServices.createOutgoingElements(camelPrefix(feature, UNSHADED_API_ELEMENTS_CONFIGURATION_NAME), builder ->
-                      builder.extendsFrom(api, compileOnlyApi, bucket(project, CONTENTS_API_CONFIGURATION_NAME))
-                              .providesApi().capability(group, capability, project.getVersion().toString())
-                              .providesAttributes(JvmEcosystemAttributesDetails::withExternalDependencies))
+      Configuration unpackagedApiElements = configureAttributes(configurations().consumable(camelPrefix(feature, UNPACKAGED_API_ELEMENTS_CONFIGURATION_NAME))
+              .setDescription("API elements for the unpackaged '" + feature + "' feature contents.")
+              .extendsFrom(api, compileOnlyApi, configurations().getByName(CONTENTS_API_CONFIGURATION_NAME)), details -> details.withExternalDependencies())
               .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt)));
-      jvmPluginServices.createOutgoingElements(camelPrefix(feature, UNSHADED_RUNTIME_ELEMENTS_CONFIGURATION_NAME), builder ->
-                      builder.extendsFrom(implementation, runtimeOnly, bucket(project, CONTENTS_CONFIGURATION_NAME))
-                              .capability(group, capability, project.getVersion().toString())
-                              .providesAttributes(JvmEcosystemAttributesDetails::withExternalDependencies))
+      unpackagedApiElements.outgoing(out -> out.capability(featureCapability));
+
+      Configuration unpackagedRuntimeElements = configureAttributes(configurations().consumable(camelPrefix(feature, UNPACKAGED_RUNTIME_ELEMENTS_CONFIGURATION_NAME))
+              .setDescription("Runtime elements for the unpackaged '" + feature + "' feature contents.")
+              .extendsFrom(implementation, runtimeOnly, configurations().getByName(CONTENTS_CONFIGURATION_NAME)), details -> details.withExternalDependencies())
               .attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaVersions.getCompileVersion().map(JavaLanguageVersion::asInt))
-                      .attribute(Usage.USAGE_ATTRIBUTE, project.getObjects().named(Usage.class, UNSHADED_JAVA_RUNTIME)));
+              .attribute(Usage.USAGE_ATTRIBUTE, project.getObjects().named(Usage.class, UNPACKAGED_JAVA_RUNTIME)));
+      unpackagedRuntimeElements.outgoing(o -> o.capability(featureCapability));
     }
 
-    public void withShadedSourcesJar() {
+    public void withPackagedSourcesJar() {
       TaskProvider<Jar> sourcesJar = project.getTasks().register("sourcesJar", Jar.class, jar -> {
-        jar.setDescription("Assembles a jar archive containing the shaded sources.");
+        jar.setDescription("Assembles a jar archive containing the packaged sources.");
         jar.setGroup(BasePlugin.BUILD_GROUP);
         jar.from(project.getTasks().named(SOURCES_TASK_NAME));
         jar.from(project.getTasks().named(JAR_TASK_NAME), spec -> spec.include("META-INF/**", "LICENSE", "NOTICE"));
         jar.getArchiveClassifier().set("sources");
       });
 
-      Configuration sourcesElements = jvmPluginServices.createOutgoingElements(SOURCES_ELEMENTS_CONFIGURATION_NAME, builder ->
-              builder.published().artifact(sourcesJar).providesAttributes(attributes -> attributes.documentation(SOURCES).asJar()));
+      Configuration sourcesElements = configureAttributes(configurations().consumable(SOURCES_ELEMENTS_CONFIGURATION_NAME)
+              .setDescription("Sources elements for the packaged artifact."), details -> details
+              .runtimeUsage().withExternalDependencies().documentation(SOURCES));
+      sourcesElements.outgoing(o -> o.artifact(sourcesJar));
 
       project.getComponents().named("java", AdhocComponentWithVariants.class, java -> {
         java.addVariantsFromConfiguration(sourcesElements, variantDetails -> {});
@@ -525,35 +572,41 @@ public class PackagePlugin implements Plugin<Project> {
       });
     }
 
-    public void withShadedJavadocJar(Closure<Void> closure) {
-      withShadedJavadocJar(new ClosureBackedAction<>(closure));
+    public void withPackagedJavadocJar(Closure<Void> closure) {
+      withPackagedJavadocJar(new ClosureBackedAction<>(closure));
     }
 
-    public void withShadedJavadocJar(Action<PackageJavadoc> action) {
-      Configuration javadocClasspath = createBucket(project, "javadocClasspath");
+    public void withPackagedJavadocJar(Action<PackageJavadoc> action) {
+
+      Configuration javadocClasspath = configurations().bucket("javadocClasspath")
+              .setDescription("Additional javadoc generation dependencies.");
       action.execute(new PackageJavadoc(javadocClasspath, project.getDependencies()));
-      Configuration additionalJavadocClasspath = jvmPluginServices.createResolvableConfiguration("additionalJavadocClasspath", builder -> builder.extendsFrom(javadocClasspath).requiresJavaLibrariesRuntime());
+      Configuration additionalJavadocClasspath = configurations().resolvable("additionalJavadocClasspath")
+              .setDescription("Additional classpath for javadoc generation.").extendsFrom(javadocClasspath);
+      jvmPluginServices.configureAsRuntimeClasspath(additionalJavadocClasspath);
 
       TaskProvider<Javadoc> javadoc = project.getTasks().register(JAVADOC_TASK_NAME, Javadoc.class, task -> {
-        task.setDescription("Generates Javadoc API documentation for the shade source code.");
+        task.setDescription("Generates Javadoc API documentation for the packaged source code.");
         task.setGroup(JavaBasePlugin.DOCUMENTATION_GROUP);
         task.setTitle(project.getName() + " " + project.getVersion() + " API");
         task.source(project.getTasks().named(SOURCES_TASK_NAME));
         task.include("**/*.java");
-        task.setClasspath(project.getConfigurations().getByName(CONTENTS_RUNTIME_ELEMENTS_CONFIGURATION_NAME)
-                .plus(project.getConfigurations().getByName(UNSHADED_RUNTIME_CLASSPATH_CONFIGURATION_NAME))
+        task.setClasspath(project.getConfigurations().getByName(CONTENTS_RUNTIME_CLASSPATH_CONFIGURATION_NAME)
+                .plus(project.getConfigurations().getByName(UNPACKAGED_RUNTIME_CLASSPATH_CONFIGURATION_NAME))
                 .plus(additionalJavadocClasspath));
         task.setDestinationDir(new File(project.getBuildDir(), JAVADOC_TASK_NAME));
       });
       TaskProvider<Jar> javadocJar = project.getTasks().register("javadocJar", Jar.class, jar -> {
-        jar.setDescription("Assembles a jar archive containing the shaded javadoc.");
+        jar.setDescription("Assembles a jar archive containing the packaged javadoc.");
         jar.setGroup(BasePlugin.BUILD_GROUP);
         jar.from(javadoc);
         jar.getArchiveClassifier().set("javadoc");
       });
 
-      Configuration javadocElements = jvmPluginServices.createOutgoingElements(JAVADOC_ELEMENTS_CONFIGURATION_NAME, builder ->
-              builder.published().artifact(javadocJar).providesAttributes(attributes -> attributes.documentation(JAVADOC).asJar()));
+      Configuration javadocElements = configureAttributes(configurations().consumable(JAVADOC_ELEMENTS_CONFIGURATION_NAME)
+              .setDescription("Javadoc elements for the packaged artifact."), details -> details
+              .runtimeUsage().withExternalDependencies().documentation(JAVADOC));
+      javadocElements.outgoing(o -> o.artifact(javadocJar));
 
       project.getComponents().named("java", AdhocComponentWithVariants.class, java -> {
         java.addVariantsFromConfiguration(javadocElements, variantDetails -> {});
@@ -564,7 +617,7 @@ public class PackagePlugin implements Plugin<Project> {
       });
     }
 
-    public static class PackageJavadoc {
+    public class PackageJavadoc {
 
       private final Configuration configuration;
       private final DependencyHandler dependencyHandler;
@@ -584,17 +637,19 @@ public class PackagePlugin implements Plugin<Project> {
           action.execute(dependency);
         }
         configuration.getDependencies().add(dependency);
+        configuration.getDependencies().add(dependency);
       }
     }
 
     public void withJavadocJarFrom(Object dependency) {
 
-      Configuration javadoc = createBucket(project, "inheritedJavadoc");
+      Configuration javadoc = configurations().bucket("inheritedJavadoc")
+              .setDescription("Dependencies for the inherited javadoc.");
       javadoc.getDependencies().add(project.getDependencies().create(dependency));
 
-      Configuration javadocJars = jvmPluginServices.createResolvableConfiguration("inheritedJavadocJars", builder -> builder.extendsFrom(javadoc)
-              .requiresAttributes(attributes -> attributes.documentation(JAVADOC).asJar()));
-
+      Configuration javadocJars = configureAttributes(configurations().resolvable("inheritedJavadocJars")
+              .setDescription("Inherited javadoc files for merging.")
+              .extendsFrom(javadoc), details -> details.documentation(JAVADOC).asJar());
 
       TaskProvider<Jar> javadocJar = project.getTasks().register("javadocJar", Jar.class, jar -> {
         jar.setDescription("Assembles a jar archive containing the inherited javadoc.");
@@ -603,8 +658,9 @@ public class PackagePlugin implements Plugin<Project> {
         jar.getArchiveClassifier().set("javadoc");
       });
 
-      Configuration javadocElements = jvmPluginServices.createOutgoingElements(JAVADOC_ELEMENTS_CONFIGURATION_NAME, builder ->
-              builder.published().artifact(javadocJar).providesAttributes(attributes -> attributes.documentation(JAVADOC).asJar()));
+      Configuration javadocElements = configureAttributes(configurations().consumable(JAVADOC_ELEMENTS_CONFIGURATION_NAME),
+              details -> details.runtimeUsage().withExternalDependencies().documentation(JAVADOC));
+      javadocElements.outgoing(o -> o.artifact(javadocJar));
 
       project.getComponents().named("java", AdhocComponentWithVariants.class, java -> {
         java.addVariantsFromConfiguration(javadocElements, variantDetails -> {});
@@ -614,28 +670,33 @@ public class PackagePlugin implements Plugin<Project> {
         task.dependsOn(javadocJar);
       });
     }
+
+    private Configuration createFeatureBucket(String feature, String bucket) {
+      return configurations().bucket(camelPrefix(feature, bucket)).extendsFrom(configurations().getByName(bucket));
+    }
   }
 
-  private static Configuration createFeatureBucket(Project project, String feature, String bucket) {
-    return createBucket(project, camelPrefix(feature, bucket)).extendsFrom(bucket(project, bucket));
+  private <T extends HasConfigurableAttributes<T>> T configureAttributes(T attributed, Action<? super JvmEcosystemAttributesDetails> details) {
+    jvmPluginServices.configureAttributes(attributed, details);
+    return attributed;
   }
 
   public static void augmentAttributeSchema(AttributesSchema schema) {
-    schema.attribute(Usage.USAGE_ATTRIBUTE, strategy -> strategy.getCompatibilityRules().add(UnshadedJavaRuntimeCompatibility.class));
+    schema.attribute(Usage.USAGE_ATTRIBUTE, strategy -> strategy.getCompatibilityRules().add(UnpackagedJavaRuntimeCompatibility.class));
   }
 
-  public static class UnshadedJavaRuntimeCompatibility implements AttributeCompatibilityRule<Usage> {
+  public static class UnpackagedJavaRuntimeCompatibility implements AttributeCompatibilityRule<Usage> {
 
     @Override
     public void execute(CompatibilityCheckDetails<Usage> details) {
       Usage consumer = details.getConsumerValue();
 
-      if (consumer != null && UNSHADED_JAVA_RUNTIME.equals(consumer.getName())) {
+      if (consumer != null && UNPACKAGED_JAVA_RUNTIME.equals(consumer.getName())) {
         Usage producer = details.getProducerValue();
         if (producer != null) {
           switch (producer.getName()) {
             case Usage.JAVA_RUNTIME:
-            case Usage.JAVA_RUNTIME_JARS:
+            case JavaEcosystemSupport.DEPRECATED_JAVA_RUNTIME_JARS:
               details.compatible();
               break;
           }

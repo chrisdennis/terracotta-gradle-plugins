@@ -7,40 +7,6 @@ import java.util.Locale;
 
 public class PluginUtils {
 
-  public static Configuration createBucket(Project project, String kind, String variant) {
-    if (variant == null) {
-      return createBucket(project, kind);
-    } else {
-      Configuration configuration = project.getConfigurations().maybeCreate(variant + capitalize(kind));
-      configuration.setDescription(capitalize(kind) + " dependencies for " + variant);
-      configuration.setVisible(false);
-      configuration.setCanBeResolved(false);
-      configuration.setCanBeConsumed(false);
-      return configuration;
-    }
-  }
-
-  public static Configuration createBucket(Project project, String kind) {
-    Configuration configuration = project.getConfigurations().maybeCreate(kind);
-    configuration.setDescription(capitalize(kind) + " dependencies");
-    configuration.setVisible(false);
-    configuration.setCanBeResolved(false);
-    configuration.setCanBeConsumed(false);
-    return configuration;
-  }
-
-  public static Configuration bucket(Project project, String kind, String variant) {
-    if (variant == null) {
-      return bucket(project, kind);
-    } else {
-      return project.getConfigurations().getByName(variant + capitalize(kind));
-    }
-  }
-
-  public static Configuration bucket(Project project, String kind) {
-    return project.getConfigurations().getByName(kind);
-  }
-
   public static String capitalize(String word) {
     if (word.isEmpty()) {
       return word;

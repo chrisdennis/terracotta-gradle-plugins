@@ -11,14 +11,14 @@ import org.gradle.api.artifacts.ModuleVersionIdentifier;
 import org.gradle.api.artifacts.ProjectDependency;
 import org.gradle.api.attributes.Category;
 import org.gradle.api.file.RegularFileProperty;
+import org.gradle.api.internal.artifacts.configurations.ConfigurationContainerInternal;
 import org.gradle.api.internal.artifacts.ivyservice.projectmodule.ProjectComponentPublication;
 import org.gradle.api.internal.component.SoftwareComponentInternal;
-import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.api.plugins.BasePluginExtension;
 import org.gradle.api.plugins.JavaPlugin;
 import org.gradle.api.plugins.JavaPluginExtension;
-import org.gradle.api.plugins.jvm.internal.JvmModelingServices;
 import org.gradle.api.provider.Property;
+import org.gradle.api.provider.Provider;
 import org.gradle.api.publish.PublishingExtension;
 import org.gradle.api.publish.maven.MavenPublication;
 import org.gradle.api.publish.maven.internal.publication.MavenPomInternal;
@@ -108,9 +108,9 @@ public class DeployPlugin implements Plugin<Project> {
       public void execute(Task task) {
         MavenPublication publication = publishTask.getPublication();
         if (publication instanceof ProjectComponentPublication) {
-          SoftwareComponentInternal component = ((ProjectComponentPublication) publication).getComponent();
-          if (component != null) { //The shadow plugin doesn't associate a component with the publication
-            Collection<ProjectDependency> unpublishedDeps = component.getUsages().stream().flatMap(usage ->
+          Provider<SoftwareComponentInternal> component = ((ProjectComponentPublication) publication).getComponent();
+          if (component.isPresent()) { //The shadow plugin doesn't associate a component with the publication
+            Collection<ProjectDependency> unpublishedDeps = component.get().getUsages().stream().flatMap(usage ->
                     usage.getDependencies().stream().filter(ProjectDependency.class::isInstance).map(ProjectDependency.class::cast).filter(moduleDependency ->
                             !moduleDependency.getDependencyProject().getPlugins().hasPlugin(DeployPlugin.class))).collect(Collectors.toList());
             if (!unpublishedDeps.isEmpty()) {
@@ -121,9 +121,8 @@ public class DeployPlugin implements Plugin<Project> {
       }
     }));
 
-    JvmModelingServices jvmModelingServices = ((ProjectInternal) project).getServices().get(JvmModelingServices.class);
-    Configuration metadataElements = jvmModelingServices.createOutgoingElements("metadataElements", builder -> {
-    }).attributes(attrs ->
+    ConfigurationContainerInternal configurations = (ConfigurationContainerInternal) project.getConfigurations();
+    Configuration metadataElements = configurations.consumable("metadataElements").attributes(attrs ->
             attrs.attribute(Category.CATEGORY_ATTRIBUTE, project.getObjects().named(Category.class, METADATA_CATEGORY)));
 
     TaskProvider<Sync> register = project.getTasks().register("outgoingMetadataSync", Sync.class, sync -> {
