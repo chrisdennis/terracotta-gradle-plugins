@@ -52,6 +52,10 @@ gradlePlugin {
       id = 'org.terracotta.build.galvan'
       implementationClass = 'org.terracotta.build.plugins.GalvanPlugin'
     }
+    hosts {
+      id = 'org.terracotta.build.hosts'
+      implementationClass = 'org.terracotta.build.plugins.CustomLocalHostPlugin'
+    }
     javadocFilter {
       id = 'org.terracotta.build.javadoc-annotation'
       implementationClass = 'org.terracotta.build.plugins.JavadocAnnotationPlugin'
