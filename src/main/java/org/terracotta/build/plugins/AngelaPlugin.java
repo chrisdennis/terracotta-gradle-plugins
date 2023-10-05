@@ -1,30 +1,34 @@
 package org.terracotta.build.plugins;
 
-import org.gradle.api.Action;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
-import org.gradle.api.Task;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.file.Directory;
-import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.internal.artifacts.configurations.ConfigurationContainerInternal;
 import org.gradle.api.plugins.JvmEcosystemPlugin;
 import org.gradle.api.plugins.JvmTestSuitePlugin;
 import org.gradle.api.plugins.jvm.JvmTestSuite;
 import org.gradle.api.plugins.jvm.internal.JvmPluginServices;
+import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.Sync;
-import org.gradle.api.tasks.testing.Test;
+import org.gradle.api.tasks.TaskProvider;
+import org.gradle.process.JavaForkOptions;
+import org.gradle.process.internal.JavaForkOptionsFactory;
 import org.gradle.testing.base.TestingExtension;
 
 import javax.inject.Inject;
 import java.nio.file.Files;
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
+import static java.util.Collections.emptyList;
+import static java.util.Collections.singleton;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
+import static org.terracotta.build.plugins.CustomHostPlugin.hostsTaskName;
 
 /**
  * Angela based testing plugin.
@@ -43,10 +47,12 @@ public class AngelaPlugin implements Plugin<Project> {
   public static final String SERVER_PLUGINS_CONFIGURATION_NAME = "angelaServerPlugins";
 
   private final JvmPluginServices jvmPluginServices;
+  private final JavaForkOptionsFactory javaForkOptionsFactory;
 
   @Inject
-  public AngelaPlugin(JvmPluginServices jvmPluginServices) {
+  public AngelaPlugin(JvmPluginServices jvmPluginServices, JavaForkOptionsFactory javaForkOptionsFactory) {
     this.jvmPluginServices = jvmPluginServices;
+    this.javaForkOptionsFactory = javaForkOptionsFactory;
   }
 
   @Override
@@ -55,24 +61,12 @@ public class AngelaPlugin implements Plugin<Project> {
 
     ConfigurationContainerInternal configurations = (ConfigurationContainerInternal) project.getConfigurations();
 
-    DirectoryProperty buildDir = project.getLayout().getBuildDirectory();
-    Provider<Directory> angelaDir = buildDir.dir("angela");
+    Provider<Directory> angelaDir = project.getLayout().getBuildDirectory().dir("angela");
     Provider<Directory> customKitDir = angelaDir.map(d -> d.dir("custom-tc-db-kit"));
 
     Configuration angela = configurations.bucket(FRAMEWORK_CONFIGURATION_NAME);
     angela.defaultDependencies(defaultDeps -> {
       defaultDeps.add(project.getDependencyFactory().create("org.terracotta", "angela", "[3,)"));
-    });
-
-    AngelaPluginExtension angelaPluginExtension = project.getExtensions().create("spawnedTsaConfig", AngelaPluginExtension.class);
-    project.getPlugins().withType(JvmTestSuitePlugin.class).configureEach(plugin -> {
-      project.getExtensions().configure(TestingExtension.class, testing -> {
-        testing.getSuites().withType(JvmTestSuite.class).configureEach(testSuite -> {
-          project.getConfigurations().named(testSuite.getSources().getImplementationConfigurationName(), config -> {
-            config.extendsFrom(angela);
-          });
-        });
-      });
     });
 
     Configuration kit = configurations.resolvableBucket(KIT_CONFIGURATION_NAME);
@@ -101,53 +95,64 @@ public class AngelaPlugin implements Plugin<Project> {
         });
       });
     });
-    project.getTasks().withType(Test.class, task -> {
-      task.dependsOn(customKitPreparation);
 
-      /*
-       * Angela properties
-       */
-
-       /*
-       * Do **not** convert the anonymous Action here to a lambda expression - it will break Gradle's up-to-date tracking
-       * and cause tasks to be needlessly rerun.
-       */
-      //noinspection Convert2Lambda
-      task.doFirst(new Action<Task>() {
-        @Override
-        public void execute(Task t) {
-          if (serverPluginsClasspath.isEmpty()) {
-            task.systemProperty("angela.kitInstallationDir", kit.getSingleFile().getAbsolutePath());
-          } else {
-            task.systemProperty("angela.kitInstallationDir", customKitDir.get().getAsFile().getAbsolutePath());
-          }
-          List<String> spawnedConfig = new ArrayList<>();
-          spawnedConfig.add("-Xms64m");
-          spawnedConfig.add("-Xmx512m");
-          spawnedConfig.add("-DIGNITE_UPDATE_NOTIFIER=false");
-          if (project.getPlugins().hasPlugin("com.terracottatech.build.convention.customHosts")) {
-            CustomHostPluginExtension customHostPluginExtension = (CustomHostPluginExtension) project.getExtensions().getByName("customHostConfig");
-            List<String> customHostList = customHostPluginExtension.getCustomHosts().get();
-            if (!customHostList.isEmpty()) {
-              String customHostNames = String.join(" ", customHostList);
-              task.systemProperty("angela.additionalLocalHostnames", customHostNames);
-              spawnedConfig.add("-Djdk.net.hosts.file=" + task.getSystemProperties().get("jdk.net.hosts.file"));
-            }
-          }
-          angelaPluginExtension.getSpawnedProcessConfig().get().forEach(config -> {
-            spawnedConfig.add(config);
+    project.getPlugins().withType(JvmTestSuitePlugin.class).configureEach(plugin -> {
+      project.getExtensions().configure(TestingExtension.class, testing -> {
+        testing.getSuites().withType(JvmTestSuite.class).configureEach(testSuite -> {
+          project.getConfigurations().named(testSuite.getSources().getImplementationConfigurationName(), config -> {
+            config.extendsFrom(angela);
           });
-          task.setJvmArgs(spawnedConfig);
-          task.systemProperty("angela.java.opts", String.join(" ", spawnedConfig));
-        }
+          testSuite.getTargets().configureEach(target -> {
+            target.getTestTask().configure(task -> {
+              task.dependsOn(customKitPreparation);
+
+              task.systemProperty("IGNITE_UPDATE_NOTIFIER", "false");
+              task.systemProperty("angela.rootDir", angelaDir.get().getAsFile().getAbsolutePath());
+              task.systemProperty("angela.skipUninstall", "true");
+              task.systemProperty("angela.tsa.fullLogging", "true");
+              task.systemProperty("angela.igniteLogging", "false");
+              task.systemProperty("angela.java.resolver", "user"); // disable toolchain, trust JAVA_HOME
+              task.systemProperty("angela.distribution", requireNonNull(project.property("version")));
+              task.getJvmArgumentProviders().add(() -> {
+                if (serverPluginsClasspath.isEmpty()) {
+                  return singleton("-Dangela.kitInstallationDir=" + kit.getSingleFile().getAbsolutePath());
+                } else {
+                  return singleton("-Dangela.kitInstallationDir=" + customKitDir.get().getAsFile().getAbsolutePath());
+                }
+              });
+
+              JavaForkOptions angelaForkOptions = javaForkOptionsFactory.newDecoratedJavaForkOptions();
+              task.getExtensions().add("angela", angelaForkOptions);
+              angelaForkOptions.setMinHeapSize("64m");
+              angelaForkOptions.setMaxHeapSize("512m");
+              angelaForkOptions.systemProperty("IGNITE_UPDATE_NOTIFIER", false);
+
+              task.getJvmArgumentProviders().add(() -> Collections.singleton("-Dangela.java.opts=" + angelaForkOptions.getAllJvmArgs().stream().collect(joining(" "))));
+
+              project.getPlugins().withType(CustomHostPlugin.class, hostsPlugin -> {
+                CustomHostPluginExtension hostsExtension = task.getExtensions().findByType(CustomHostPluginExtension.class);
+                MapProperty<String, List<String>> customHostList = hostsExtension.getCustomHosts();
+                task.getJvmArgumentProviders().add(() -> {
+                  if (!customHostList.get().isEmpty()) {
+                    String customHostNames = customHostList.get().values().stream().flatMap(List::stream).collect(joining(" "));
+                    return singleton("-Dangela.additionalLocalHostnames=" + customHostNames);
+                  } else {
+                    return emptyList();
+                  }
+                });
+                TaskProvider<CustomHostPlugin.WriteHostsFile> writeHostsFile = project.getTasks().named(hostsTaskName(task), CustomHostPlugin.WriteHostsFile.class);
+                angelaForkOptions.getJvmArgumentProviders().add(() -> {
+                  if (!customHostList.get().isEmpty()) {
+                    return singleton("-Djdk.net.hosts.file=" + writeHostsFile.get().getHostsFile().getAsFile().get().getAbsolutePath());
+                  } else {
+                    return emptyList();
+                  }
+                });
+              });
+            });
+          });
+        });
       });
-      task.systemProperty("IGNITE_UPDATE_NOTIFIER", "false");
-      task.systemProperty("angela.rootDir", angelaDir.get().getAsFile().getAbsolutePath());
-      task.systemProperty("angela.skipUninstall", "true");
-      task.systemProperty("angela.tsa.fullLogging", "true");
-      task.systemProperty("angela.igniteLogging", "false");
-      task.systemProperty("angela.java.resolver", "user"); // disable toolchain, trust JAVA_HOME
-      task.systemProperty("angela.distribution", requireNonNull(project.property("version")));
     });
   }
 }
