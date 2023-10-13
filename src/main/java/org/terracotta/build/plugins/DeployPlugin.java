@@ -150,6 +150,9 @@ public class DeployPlugin implements Plugin<Project> {
       project.getTasks().named(JavaPlugin.JAVADOC_TASK_NAME, Javadoc.class, javadoc -> {
         BasePluginExtension basePluginConvention = project.getExtensions().getByType(BasePluginExtension.class);
         javadoc.setTitle(basePluginConvention.getArchivesName().get() + " " + project.getVersion() + " API");
+      });
+
+      project.getTasks().withType(Javadoc.class).configureEach(javadoc -> {
         javadoc.exclude("**/internal/**");
         ((CoreJavadocOptions) javadoc.getOptions()).addBooleanOption("Xdoclint:none", true);
       });
