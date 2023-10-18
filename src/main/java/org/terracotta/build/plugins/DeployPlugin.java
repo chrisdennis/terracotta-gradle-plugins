@@ -6,7 +6,6 @@ import org.gradle.api.NamedDomainObjectSet;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
-import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.ModuleVersionIdentifier;
 import org.gradle.api.artifacts.ProjectDependency;
 import org.gradle.api.attributes.Category;
@@ -23,7 +22,7 @@ import org.gradle.api.publish.PublishingExtension;
 import org.gradle.api.publish.maven.MavenPublication;
 import org.gradle.api.publish.maven.internal.publication.MavenPomInternal;
 import org.gradle.api.publish.maven.internal.publication.MavenPublicationInternal;
-import org.gradle.api.publish.maven.internal.publisher.MavenProjectIdentity;
+import org.gradle.api.publish.maven.internal.publisher.MavenPublicationCoordinates;
 import org.gradle.api.publish.maven.plugins.MavenPublishPlugin;
 import org.gradle.api.publish.maven.tasks.AbstractPublishToMaven;
 import org.gradle.api.publish.maven.tasks.GenerateMavenPom;
@@ -68,6 +67,7 @@ import static org.terracotta.build.PluginUtils.capitalize;
  *   <li>{@code install} as alias of {@code publishToMavenLocal}</li>
  * </ul>
  */
+@SuppressWarnings("UnstableApiUsage")
 public class DeployPlugin implements Plugin<Project> {
 
   public static final String METADATA_CATEGORY = "metadata";
@@ -122,13 +122,11 @@ public class DeployPlugin implements Plugin<Project> {
     }));
 
     ConfigurationContainerInternal configurations = (ConfigurationContainerInternal) project.getConfigurations();
-    Configuration metadataElements = configurations.consumable("metadataElements").attributes(attrs ->
-            attrs.attribute(Category.CATEGORY_ATTRIBUTE, project.getObjects().named(Category.class, METADATA_CATEGORY)));
 
     TaskProvider<Sync> register = project.getTasks().register("outgoingMetadataSync", Sync.class, sync -> {
       sync.into(project.getLayout().getBuildDirectory().dir("metadata"));
       project.getTasks().withType(GenerateMavenPom.class).forEach(pomTask -> sync.from(pomTask, s -> {
-        MavenProjectIdentity projectIdentity = ((MavenPomInternal) pomTask.getPom()).getProjectIdentity();
+        MavenPublicationCoordinates projectIdentity = ((MavenPomInternal) pomTask.getPom()).getCoordinates();
         String pomFile = projectIdentity.getArtifactId().get() + "-" + projectIdentity.getVersion().get() + ".pom";
         s.rename(".*", pomFile);
       }));
@@ -138,7 +136,9 @@ public class DeployPlugin implements Plugin<Project> {
         s.rename(".*", moduleFile);
       }));
     });
-    metadataElements.getOutgoing().artifact(register);
+    configurations.consumable("metadataElements",
+            c -> c.attributes(attrs -> attrs.attribute(Category.CATEGORY_ATTRIBUTE, project.getObjects().named(Category.class, METADATA_CATEGORY)))
+                    .getOutgoing().artifact(register));
 
 
     project.getTasks().register("install", task ->
@@ -175,7 +175,7 @@ public class DeployPlugin implements Plugin<Project> {
       TaskCollection<GenerateMavenPom> poms = p.getTasks().withType(GenerateMavenPom.class);
 
       p.getTasks().withType(Jar.class).configureEach(jar -> poms.forEach(pomTask -> {
-        MavenProjectIdentity identity = ((MavenPomInternal) pomTask.getPom()).getProjectIdentity();
+        MavenPublicationCoordinates identity = ((MavenPomInternal) pomTask.getPom()).getCoordinates();
         jar.from(pomTask, spec -> {
           spec.into("META-INF/maven/" + identity.getGroupId().get() + "/" + identity.getArtifactId().get());
           spec.rename(".*", "pom.xml");

@@ -158,16 +158,16 @@ public class OsgiManifestJarExtension {
               }).reduce((a, b) -> b.andThen(a)).orElse(identity());
 
               exports.addAll(bndJar.getPackages().stream().filter(p -> !(p.startsWith("META-INF") || p.startsWith("OSGI-INF") || p.isEmpty()))
-                      .map(packageRelocator).map(p -> {
-                        ComponentIdentifier componentIdentifier = artifact.getId().getComponentIdentifier();
-                        if (componentIdentifier instanceof ModuleComponentIdentifier) {
-                          return p + ";version=\"" + ((ModuleComponentIdentifier) componentIdentifier).getVersion() + "\"";
-                        } else if (componentIdentifier instanceof ProjectComponentIdentifier) {
-                          return p;
-                        } else {
-                          throw new IllegalArgumentException("Unhandled component identifier: " + componentIdentifier);
-                        }
-                      }).map(p -> "[0-9]?" + p).collect(Collectors.toList()));
+                  .map(packageRelocator).map(p -> {
+                    ComponentIdentifier componentIdentifier = artifact.getId().getComponentIdentifier();
+                    if (componentIdentifier instanceof ModuleComponentIdentifier) {
+                      return p + ";version=\"" + ((ModuleComponentIdentifier) componentIdentifier).getVersion() + "\"";
+                    } else if (componentIdentifier instanceof ProjectComponentIdentifier) {
+                      return p;
+                    } else {
+                      throw new IllegalArgumentException("Unhandled component identifier: " + componentIdentifier);
+                    }
+                  }).map(p -> "[0-9]?" + p).collect(Collectors.toList()));
             } else {
               // split the export header in to its separate instructions
               Matcher matcher = OSGI_EXPORT_PATTERN.matcher(exportHeader);

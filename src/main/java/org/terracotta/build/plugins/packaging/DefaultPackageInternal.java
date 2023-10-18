@@ -8,7 +8,7 @@ public abstract class DefaultPackageInternal extends PackageInternal {
   }
 
   @Override
-  protected String snakeName(String base) {
+  protected String kebabName(String base) {
     return base;
   }
 

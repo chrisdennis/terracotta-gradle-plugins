@@ -21,9 +21,9 @@ public interface CustomCapabilitiesInternal extends CustomCapabilities {
     Capability c = getCapabilityNotationParser().parseNotation(notation);
     if (c.getVersion() == null) {
       c = getCapabilityNotationParser().parseNotation(mapOf(
-              "group", c.getGroup(),
-              "name", c.getName(),
-              "version", getProject().getVersion()));
+          "group", c.getGroup(),
+          "name", c.getName(),
+          "version", getProject().getVersion()));
     }
     getCapabilities().add(c);
   }

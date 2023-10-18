@@ -1,10 +1,12 @@
 package org.terracotta.build.plugins;
 
+import org.gradle.api.NamedDomainObjectProvider;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
-import org.gradle.api.artifacts.Configuration;
+import org.gradle.api.artifacts.ConfigurationContainer;
+import org.gradle.api.artifacts.DependencyScopeConfiguration;
+import org.gradle.api.artifacts.ResolvableConfiguration;
 import org.gradle.api.file.Directory;
-import org.gradle.api.internal.artifacts.configurations.ConfigurationContainerInternal;
 import org.gradle.api.plugins.JvmEcosystemPlugin;
 import org.gradle.api.plugins.JvmTestSuitePlugin;
 import org.gradle.api.plugins.jvm.JvmTestSuite;
@@ -39,9 +41,11 @@ import static org.terracotta.build.plugins.CustomLocalHostPlugin.hostsTaskName;
  *   {@code pluginLibs} are configured.</li>
  * </ul>
  */
+@SuppressWarnings("UnstableApiUsage")
 public class AngelaPlugin implements Plugin<Project> {
 
   public static final String KIT_CONFIGURATION_NAME = "angelaKit";
+  public static final String KIT_PATH_CONFIGURATION_NAME = "angelaKitPath";
   public static final String FRAMEWORK_CONFIGURATION_NAME = "angela";
   public static final String SERVER_PLUGINS_CONFIGURATION_NAME = "angelaServerPlugins";
 
@@ -58,27 +62,29 @@ public class AngelaPlugin implements Plugin<Project> {
   public void apply(Project project) {
     project.getPlugins().apply(JvmEcosystemPlugin.class);
     project.getPlugins().apply(JvmTestSuitePlugin.class);
-    
-    ConfigurationContainerInternal configurations = (ConfigurationContainerInternal) project.getConfigurations();
+
+    ConfigurationContainer configurations = project.getConfigurations();
 
     Provider<Directory> angelaDir = project.getLayout().getBuildDirectory().dir("angela");
     Provider<Directory> customKitDir = angelaDir.map(d -> d.dir("custom-tc-db-kit"));
 
-    Configuration angela = configurations.bucket(FRAMEWORK_CONFIGURATION_NAME);
-    angela.defaultDependencies(defaultDeps -> {
-      defaultDeps.add(project.getDependencyFactory().create("org.terracotta", "angela", "[3,)"));
+    NamedDomainObjectProvider<DependencyScopeConfiguration> angela = configurations.dependencyScope(FRAMEWORK_CONFIGURATION_NAME,
+            c -> c.defaultDependencies(defaultDeps -> {
+              defaultDeps.add(project.getDependencyFactory().create("org.terracotta", "angela", "[3,)"));
+            })
+    );
+
+    NamedDomainObjectProvider<DependencyScopeConfiguration> kit = configurations.dependencyScope(KIT_CONFIGURATION_NAME);
+    NamedDomainObjectProvider<ResolvableConfiguration> kitPath = configurations.resolvable(KIT_PATH_CONFIGURATION_NAME, c -> c.extendsFrom(kit.get()));
+    NamedDomainObjectProvider<DependencyScopeConfiguration> serverPlugins = configurations.dependencyScope(SERVER_PLUGINS_CONFIGURATION_NAME);
+    NamedDomainObjectProvider<ResolvableConfiguration> serverPluginsClasspath = configurations.resolvable(SERVER_PLUGINS_CONFIGURATION_NAME + "Classpath", c -> {
+      c.extendsFrom(serverPlugins.get());
+      jvmPluginServices.configureAsRuntimeClasspath(c);
     });
 
-    Configuration kit = configurations.resolvableBucket(KIT_CONFIGURATION_NAME);
-    Configuration serverPlugins = configurations.bucket(SERVER_PLUGINS_CONFIGURATION_NAME);
-    Configuration serverPluginsClasspath = ((ConfigurationContainerInternal) project.getConfigurations())
-            .resolvable(SERVER_PLUGINS_CONFIGURATION_NAME + "Classpath").extendsFrom(serverPlugins);
-    jvmPluginServices.configureAsRuntimeClasspath(serverPluginsClasspath);
-
     Provider<Sync> customKitPreparation = project.getTasks().register("angelaCustomKitPreparation", Sync.class, task -> {
-      task.onlyIf(t -> !serverPluginsClasspath.isEmpty());
-
-      task.from(kit);
+      task.onlyIf("Kit customizations present", t -> !serverPluginsClasspath.get().isEmpty());
+      task.from(kitPath);
       task.into(customKitDir);
 
       Predicate<String> pruning = Stream.of("server/plugins/api", "server/lib")
@@ -99,7 +105,7 @@ public class AngelaPlugin implements Plugin<Project> {
     project.getExtensions().configure(TestingExtension.class, testing -> {
       testing.getSuites().withType(JvmTestSuite.class).configureEach(testSuite -> {
         project.getConfigurations().named(testSuite.getSources().getImplementationConfigurationName(), config -> {
-          config.extendsFrom(angela);
+          config.extendsFrom(angela.get());
         });
         testSuite.getTargets().configureEach(target -> {
           target.getTestTask().configure(task -> {
@@ -112,8 +118,8 @@ public class AngelaPlugin implements Plugin<Project> {
             task.systemProperty("angela.java.resolver", "user"); // disable toolchain, trust JAVA_HOME
             task.systemProperty("angela.distribution", requireNonNull(project.property("version")));
             task.getJvmArgumentProviders().add(() -> {
-              if (serverPluginsClasspath.isEmpty()) {
-                return singleton("-Dangela.kitInstallationDir=" + kit.getSingleFile().getAbsolutePath());
+              if (customKitPreparation.get().getState().getSkipped()) {
+                return singleton("-Dangela.kitInstallationDir=" + kitPath.get().getSingleFile().getAbsolutePath());
               } else {
                 return singleton("-Dangela.kitInstallationDir=" + customKitDir.get().getAsFile().getAbsolutePath());
               }

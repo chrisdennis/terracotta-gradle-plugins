@@ -1,8 +1,11 @@
 package org.terracotta.build.plugins;
 
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar;
+import org.gradle.api.NamedDomainObjectProvider;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
+import org.gradle.api.artifacts.ConfigurationContainer;
+import org.gradle.api.artifacts.DependencyScopeConfiguration;
 import org.gradle.api.attributes.AttributeCompatibilityRule;
 import org.gradle.api.attributes.AttributesSchema;
 import org.gradle.api.attributes.CompatibilityCheckDetails;
@@ -10,35 +13,65 @@ import org.gradle.api.attributes.Usage;
 import org.gradle.api.component.AdhocComponentWithVariants;
 import org.gradle.api.component.SoftwareComponentFactory;
 import org.gradle.api.internal.artifacts.JavaEcosystemSupport;
-import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.api.plugins.BasePlugin;
 import org.gradle.api.publish.PublishingExtension;
 import org.gradle.api.publish.maven.MavenPublication;
 import org.gradle.api.publish.maven.plugins.MavenPublishPlugin;
-import org.gradle.internal.service.ServiceRegistry;
 import org.terracotta.build.plugins.packaging.OsgiManifestJarExtension;
 import org.terracotta.build.plugins.packaging.PackageInternal;
 import org.terracotta.build.plugins.packaging.PackagingExtension;
 import org.terracotta.build.plugins.packaging.PackagingExtensionInternal;
 
+import javax.inject.Inject;
+
 import static org.gradle.api.internal.tasks.JvmConstants.JAVA_COMPONENT_NAME;
+import static org.gradle.api.plugins.JavaPlugin.API_CONFIGURATION_NAME;
+import static org.gradle.api.plugins.JavaPlugin.COMPILE_ONLY_API_CONFIGURATION_NAME;
+import static org.gradle.api.plugins.JavaPlugin.IMPLEMENTATION_CONFIGURATION_NAME;
+import static org.gradle.api.plugins.JavaPlugin.RUNTIME_ONLY_CONFIGURATION_NAME;
+import static org.terracotta.build.plugins.packaging.PackageInternal.CONTENTS_API_CONFIGURATION_NAME;
+import static org.terracotta.build.plugins.packaging.PackageInternal.CONTENTS_CONFIGURATION_NAME;
+import static org.terracotta.build.plugins.packaging.PackageInternal.PROVIDED_CONFIGURATION_NAME;
 import static org.terracotta.build.plugins.packaging.PackageInternal.UNPACKAGED_JAVA_RUNTIME;
+import static org.terracotta.build.plugins.packaging.PackageInternal.camelPrefix;
 
 /**
  * EhDistribute
  */
+@SuppressWarnings("UnstableApiUsage")
 public abstract class PackagePlugin implements Plugin<Project> {
+
+  public static final String COMMON_PREFIX = "common";
+
+  @Inject
+  protected abstract SoftwareComponentFactory getSoftwareComponentFactory();
 
   @Override
   public void apply(Project project) {
     project.getPlugins().apply(BasePlugin.class);
 
-    ServiceRegistry projectServices = ((ProjectInternal) project).getServices();
-    SoftwareComponentFactory softwareComponentFactory = projectServices.get(SoftwareComponentFactory.class);
-    AdhocComponentWithVariants javaComponent = softwareComponentFactory.adhoc(JAVA_COMPONENT_NAME);
+    AdhocComponentWithVariants javaComponent = getSoftwareComponentFactory().adhoc(JAVA_COMPONENT_NAME);
     project.getComponents().add(javaComponent);
 
     project.getTasks().withType(ShadowJar.class).configureEach(shadow -> shadow.getExtensions().create("osgi", OsgiManifestJarExtension.class, shadow));
+
+
+    ConfigurationContainer configurations = project.getConfigurations();
+    NamedDomainObjectProvider<DependencyScopeConfiguration> commonContentsApi = configurations.dependencyScope(camelPrefix(COMMON_PREFIX, CONTENTS_API_CONFIGURATION_NAME),
+        c -> c.setDescription("API dependencies for all packages contents."));
+    configurations.dependencyScope(camelPrefix(COMMON_PREFIX, CONTENTS_CONFIGURATION_NAME),
+        c -> c.extendsFrom(commonContentsApi.get()).setDescription("Implementation dependencies for all packages contents."));
+
+    NamedDomainObjectProvider<DependencyScopeConfiguration> commonApi = configurations.dependencyScope(camelPrefix(COMMON_PREFIX, API_CONFIGURATION_NAME),
+        c -> c.setDescription("API dependencies for all packaged artifacts."));
+    configurations.dependencyScope(camelPrefix(COMMON_PREFIX, IMPLEMENTATION_CONFIGURATION_NAME),
+        c -> c.extendsFrom(commonApi.get()).setDescription("Implementation dependencies for all packaged artifacts."));
+    configurations.dependencyScope(camelPrefix(COMMON_PREFIX, COMPILE_ONLY_API_CONFIGURATION_NAME),
+        c -> c.setDescription("Compile-only API dependencies for all packaged artifacts."));
+    configurations.dependencyScope(camelPrefix(COMMON_PREFIX, RUNTIME_ONLY_CONFIGURATION_NAME),
+        c -> c.setDescription("Runtime-only dependencies for all packaged artifacts."));
+    configurations.dependencyScope(camelPrefix(COMMON_PREFIX, PROVIDED_CONFIGURATION_NAME),
+        c -> c.setDescription("'Provided' API dependencies for all packaged artifacts."));
 
     PackagingExtensionInternal packaging = (PackagingExtensionInternal) project.getExtensions().create(PackagingExtension.class, "packaging", PackagingExtensionInternal.class);
     packaging.getDefaultPackage().create();
