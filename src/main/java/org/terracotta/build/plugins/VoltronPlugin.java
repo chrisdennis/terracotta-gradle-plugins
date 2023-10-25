@@ -1,10 +1,8 @@
 package org.terracotta.build.plugins;
 
-import org.gradle.api.Action;
 import org.gradle.api.NamedDomainObjectProvider;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
-import org.gradle.api.Task;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.ModuleDependency;
 import org.gradle.api.artifacts.ProjectDependency;
@@ -16,6 +14,8 @@ import org.gradle.api.plugins.JavaPluginExtension;
 import org.gradle.api.plugins.JvmEcosystemPlugin;
 import org.gradle.api.plugins.JvmTestSuitePlugin;
 import org.gradle.api.plugins.jvm.JvmTestSuite;
+import org.gradle.api.provider.Provider;
+import org.gradle.api.tasks.FileNormalizer;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
 import org.gradle.api.tasks.bundling.Jar;
@@ -25,8 +25,8 @@ import org.gradle.testing.base.TestingExtension;
 
 import java.io.File;
 import java.util.jar.Attributes;
-import java.util.stream.Collectors;
 
+import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toSet;
 import static org.gradle.api.plugins.JavaPlugin.RUNTIME_CLASSPATH_CONFIGURATION_NAME;
 import static org.terracotta.build.Utils.mapOf;
@@ -38,6 +38,7 @@ import static org.terracotta.build.Utils.mapOf;
  * on the compile and test classpaths, a service configuration for consumed service apis, an xml configuration for
  * legacy configuration code, and appropriate manifest classpath assembly.
  */
+@SuppressWarnings("UnstableApiUsage")
 public class VoltronPlugin implements Plugin<Project> {
 
   public static final String XML_CONFIG_VARIANT_NAME = "xml";
@@ -79,24 +80,17 @@ public class VoltronPlugin implements Plugin<Project> {
     project.getConfigurations().named(JavaPlugin.API_CONFIGURATION_NAME, config -> config.extendsFrom(service.get()));
     project.getConfigurations().named(JavaPlugin.COMPILE_ONLY_CONFIGURATION_NAME, config -> config.extendsFrom(voltron.get()));
     project.getConfigurations().named(JavaPlugin.TEST_IMPLEMENTATION_CONFIGURATION_NAME, config -> config.extendsFrom(voltron.get()));
-    /*
-     * Do **not** convert the anonymous Action here to a lambda expression - it will break Gradle's up-to-date tracking
-     * and cause tasks to be needlessly rerun.
-     */
+
     project.getTasks().named(JavaPlugin.JAR_TASK_NAME, Jar.class, jar -> {
-      Configuration runtimeClasspath = project.getConfigurations().getByName(RUNTIME_CLASSPATH_CONFIGURATION_NAME);
-      jar.getInputs().property(RUNTIME_CLASSPATH_CONFIGURATION_NAME, runtimeClasspath.getElements()
-              .map(files -> files.stream().map(f -> f.getAsFile().getName()).collect(toSet())));
-      //noinspection Convert2Lambda
-      jar.doFirst(new Action<Task>() {
-        @Override
-        public void execute(Task task) {
-          jar.manifest(manifest -> {
-            FileCollection classpath = runtimeClasspath.minus(service.get()).minus(voltron.get());
-            manifest.attributes(mapOf(Attributes.Name.CLASS_PATH.toString(), classpath.getFiles().stream().map(File::getName).collect(Collectors.joining(" "))));
-          });
-        }
-      });
+      NamedDomainObjectProvider<Configuration> runtimeClasspath = project.getConfigurations().named(RUNTIME_CLASSPATH_CONFIGURATION_NAME);
+
+      jar.getInputs().property(RUNTIME_CLASSPATH_CONFIGURATION_NAME, runtimeClasspath.flatMap(c -> c.getElements().map(e -> e.stream().map(f -> f.getAsFile().getName()).collect(toSet()))));
+      jar.getInputs().property(SERVICE_CONFIGURATION_NAME, service.flatMap(c -> c.getElements().map(e -> e.stream().map(f -> f.getAsFile().getName()).collect(toSet()))));
+      jar.getInputs().property(VOLTRON_CONFIGURATION_NAME, voltron.flatMap(c -> c.getElements().map(e -> e.stream().map(f -> f.getAsFile().getName()).collect(toSet()))));
+
+      Provider<String> voltronClasspath = runtimeClasspath.zip(service.zip(voltron, FileCollection::plus), FileCollection::minus)
+              .map(c -> c.getFiles().stream().map(File::getName).collect(joining(" ")));
+      jar.manifest(manifest -> manifest.attributes(mapOf(Attributes.Name.CLASS_PATH.toString(), voltronClasspath)));
     });
 
     project.getConfigurations().named(xml.getApiConfigurationName(), config -> config.extendsFrom(service.get()));
