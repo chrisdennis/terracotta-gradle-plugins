@@ -27,6 +27,9 @@ import static java.nio.file.Files.readAllBytes;
 import static java.util.Collections.singletonMap;
 import static org.apache.hc.client5.http.fluent.Request.patch;
 
+/**
+ * Task that uploads readme content to a "Docker Trusted Registry" server.
+ */
 public abstract class DockerPushReadme extends DockerTask {
 
   public DockerPushReadme() {
@@ -62,12 +65,27 @@ public abstract class DockerPushReadme extends DockerTask {
             }));
   }
 
+  /**
+   * Target registry configuration.
+   *
+   * @return registry configuration
+   */
   @Input
   public abstract Property<Registry> getRegistry();
 
+  /**
+   * Target repository name.
+   *
+   * @return repository name
+   */
   @Input
   public abstract Property<String> getRepositoryName();
 
+  /**
+   * Input file containing readme content.
+   *
+   * @return readme file
+   */
   @InputFile
   public abstract RegularFileProperty getReadmeFile();
 }

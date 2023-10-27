@@ -36,6 +36,7 @@ import static org.terracotta.build.Utils.getLocalHostName;
 import static org.terracotta.build.Utils.mapOf;
 import static org.terracotta.build.plugins.docker.DockerEcosystemPlugin.DOCKER_IMAGE_ID;
 
+@SuppressWarnings("UnstableApiUsage")
 public class DockerBuildPlugin implements Plugin<Project> {
 
   private static final Pattern DOCKERFILE_EVAL_PATTERN = Pattern.compile("\\$\\$\\{(?<expression>.+)}");
@@ -47,12 +48,18 @@ public class DockerBuildPlugin implements Plugin<Project> {
 
     DockerExtension dockerExtension = project.getExtensions().getByType(DockerExtension.class);
 
+    /*
+     * Attach build extension to docker extension installed by ecosystem plugin.
+     */
     DockerBuildExtension buildExtension = ((ExtensionAware) dockerExtension).getExtensions().create("build", DockerBuildExtension.class);
 
     BuildInfoExtension buildInfo = project.getExtensions().getByType(BuildInfoExtension.class);
 
     configureBuildDefaults(project, buildExtension, buildInfo);
 
+    /*
+     *
+     */
     TaskProvider<Sync> dockerEnvironment = project.getTasks().register("dockerEnvironment", Sync.class, sync -> {
       sync.setDescription("Assembles the Docker build environment.");
       sync.setGroup(LifecycleBasePlugin.BUILD_GROUP);
@@ -179,14 +186,11 @@ public class DockerBuildPlugin implements Plugin<Project> {
       purge.getArguments().add("--force");
     });
 
-    project.getConfigurations().register("outgoingDocker", config -> {
-      config.setDescription("Built Docker image-id files.");
-      config.setCanBeConsumed(true);
-      config.setCanBeResolved(false);
-      config.setVisible(false);
-      config.attributes(attrs -> attrs.attribute(Category.CATEGORY_ATTRIBUTE, project.getObjects().named(Category.class, DOCKER_IMAGE_ID)));
-      config.outgoing(outgoing -> outgoing.artifact(dockerBuild));
-    });
+    project.getConfigurations().consumable("outgoingDocker", c -> c
+        .setDescription("Built Docker image-id files.")
+        .attributes(attrs -> attrs.attribute(Category.CATEGORY_ATTRIBUTE, project.getObjects().named(Category.class, DOCKER_IMAGE_ID)))
+        .outgoing(outgoing -> outgoing.artifact(dockerBuild))
+    );
 
     project.getPlugins().withType(CopyrightPlugin.class).configureEach(plugin ->
             ((ExtensionAware) buildExtension).getExtensions().add("copyright", plugin.createCopyrightSet(project, "docker", copyright -> {
@@ -203,9 +207,9 @@ public class DockerBuildPlugin implements Plugin<Project> {
     dockerBuild.getBuildArgs().convention(emptyMap());
     dockerBuild.getDockerReadme().convention(dockerSourceBase.file("README.md"));
     dockerBuild.getContentsDirectory().convention(dockerSourceBase.dir("contents"));
-    dockerBuild.getDocTemplates().convention(project.getLayout().getProjectDirectory().dir("../doc/templates"));
+    dockerBuild.getDocTemplates().convention(project.getLayout().getProjectDirectory().dir("doc/templates"));
     dockerBuild.getDocMetadata().convention(emptyMap());
-    dockerBuild.getSagDocDirectory().convention(project.getLayout().getProjectDirectory().dir("../doc/acr-data"));
+    dockerBuild.getSagDocDirectory().convention(project.getLayout().getProjectDirectory().dir("doc/acr-data"));
 
     dockerBuild.getTags().convention(project.provider(() -> singletonList(project.getVersion().toString())));
     dockerBuild.getMetadata().put("gradle.build.host", getLocalHostName(project));

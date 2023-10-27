@@ -25,6 +25,9 @@ import java.nio.file.Path;
 import static java.util.Collections.emptyMap;
 import static java.util.stream.Stream.of;
 
+/**
+ * Docker '{@code docker build}' task.
+ */
 public abstract class DockerBuild extends DockerTask {
 
   public DockerBuild() {
@@ -62,21 +65,51 @@ public abstract class DockerBuild extends DockerTask {
     });
   }
 
+  /**
+   * Dockerfile to build
+   *
+   * @return target Dockerfile
+   */
   @InputFile
   public abstract RegularFileProperty getDockerfile();
 
+  /**
+   * Assembled environment for the Dockerfile
+   *
+   * @return dockerfile environment
+   */
   @InputDirectory @SkipWhenEmpty
   public abstract DirectoryProperty getEnvironment();
 
+  /**
+   * Image ID file where the resultant image hash will be written
+   *
+   * @return output image id file
+   */
   @OutputFile
   public abstract RegularFileProperty getImageIdFile();
 
+  /**
+   * Metadata labels to apply to the image.
+   *
+   * @return image metadata labels
+   */
   @Input
   public abstract MapProperty<String, String> getMetadata();
 
+  /**
+   * Map of input build arguments
+   *
+   * @return build arguments
+   */
   @Input
   public abstract MapProperty<String, String> getBuildArgs();
 
+  /**
+   * Reusltant image hash/id.
+   *
+   * @return output image hash
+   */
   @Internal
   public Provider<String> getImageId() {
     return getImageIdFile().map(DockerBuild::readImageId);

@@ -13,6 +13,9 @@ import java.util.concurrent.Callable;
 
 import static org.gradle.api.publish.plugins.PublishingPlugin.PUBLISH_TASK_GROUP;
 
+/**
+ * Docker '{@code docker push}' task.
+ */
 public abstract class DockerPush extends DockerTask {
 
   public DockerPush() {
@@ -35,9 +38,19 @@ public abstract class DockerPush extends DockerTask {
     }
   }
 
+  /**
+   * Docker registry to push images to.
+   *
+   * @return target docker registry
+   */
   @Internal
   public abstract Property<Registry> getRegistry();
 
+  /**
+   * List of docker tags to push.
+   *
+   * @return tags to push
+   */
   @Input
   public abstract ListProperty<String> getTags();
 }

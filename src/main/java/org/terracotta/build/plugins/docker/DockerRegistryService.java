@@ -36,6 +36,12 @@ public abstract class DockerRegistryService implements BuildService<DockerRegist
 
   private Path configDirectory;
 
+  /**
+   * Decorate an {@code ExecSpec} action to execute while logged in to the registry.
+   *
+   * @param action docker exec spec action
+   * @return an authenticating exec spec action
+   */
   public Action<ExecSpec> login(Action<ExecSpec> action) {
     return spec -> {
       login().ifPresent(config -> spec.args("--config", config.toString()));
@@ -43,6 +49,9 @@ public abstract class DockerRegistryService implements BuildService<DockerRegist
     };
   }
 
+  /**
+   * Logs out from the registry and deletes the local config context files.
+   */
   public void close() {
     logout();
   }

@@ -4,8 +4,10 @@ import org.gradle.api.NamedDomainObjectProvider;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.Configuration;
+import org.gradle.api.artifacts.DependencyScopeConfiguration;
 import org.gradle.api.artifacts.ModuleDependency;
 import org.gradle.api.artifacts.ProjectDependency;
+import org.gradle.api.artifacts.ResolvableConfiguration;
 import org.gradle.api.artifacts.dsl.DependencyFactory;
 import org.gradle.api.capabilities.Capability;
 import org.gradle.api.file.FileCollection;
@@ -44,6 +46,7 @@ public class VoltronPlugin implements Plugin<Project> {
   public static final String XML_CONFIG_VARIANT_NAME = "xml";
   public static final String VOLTRON_CONFIGURATION_NAME = "voltron";
   public static final String SERVICE_CONFIGURATION_NAME = "service";
+  private static final String PROVIDED_CLASSPATH_CONFIGURATION_NAME = "providedClasspath";
 
   @Override
   public void apply(Project project) {
@@ -67,16 +70,12 @@ public class VoltronPlugin implements Plugin<Project> {
       });
     });
 
-    NamedDomainObjectProvider<Configuration> voltron = project.getConfigurations().register(VOLTRON_CONFIGURATION_NAME, config -> {
-      config.setDescription("Dependencies provided by the platform Kit, either from server/lib or from plugins/api");
-      config.setCanBeResolved(true);
-      config.setCanBeConsumed(true);
-    });
-    NamedDomainObjectProvider<Configuration> service = project.getConfigurations().register(SERVICE_CONFIGURATION_NAME, config -> {
-      config.setDescription("Services consumed by this plugin");
-      config.setCanBeResolved(true);
-      config.setCanBeConsumed(true);
-    });
+    NamedDomainObjectProvider<DependencyScopeConfiguration> voltron = project.getConfigurations().dependencyScope(VOLTRON_CONFIGURATION_NAME,
+        c -> c.setDescription("Dependencies provided by the platform Kit, either from server/lib or from plugins/api"));
+    NamedDomainObjectProvider<DependencyScopeConfiguration> service = project.getConfigurations().dependencyScope(SERVICE_CONFIGURATION_NAME,
+        c -> c.setDescription("Services consumed by this plugin"));
+    NamedDomainObjectProvider<ResolvableConfiguration> providedClasspath = project.getConfigurations().resolvable(PROVIDED_CLASSPATH_CONFIGURATION_NAME, c -> c.extendsFrom(voltron.get(), service.get()));
+
     project.getConfigurations().named(JavaPlugin.API_CONFIGURATION_NAME, config -> config.extendsFrom(service.get()));
     project.getConfigurations().named(JavaPlugin.COMPILE_ONLY_CONFIGURATION_NAME, config -> config.extendsFrom(voltron.get()));
     project.getConfigurations().named(JavaPlugin.TEST_IMPLEMENTATION_CONFIGURATION_NAME, config -> config.extendsFrom(voltron.get()));
@@ -85,10 +84,9 @@ public class VoltronPlugin implements Plugin<Project> {
       NamedDomainObjectProvider<Configuration> runtimeClasspath = project.getConfigurations().named(RUNTIME_CLASSPATH_CONFIGURATION_NAME);
 
       jar.getInputs().property(RUNTIME_CLASSPATH_CONFIGURATION_NAME, runtimeClasspath.flatMap(c -> c.getElements().map(e -> e.stream().map(f -> f.getAsFile().getName()).collect(toSet()))));
-      jar.getInputs().property(SERVICE_CONFIGURATION_NAME, service.flatMap(c -> c.getElements().map(e -> e.stream().map(f -> f.getAsFile().getName()).collect(toSet()))));
-      jar.getInputs().property(VOLTRON_CONFIGURATION_NAME, voltron.flatMap(c -> c.getElements().map(e -> e.stream().map(f -> f.getAsFile().getName()).collect(toSet()))));
+      jar.getInputs().property(PROVIDED_CLASSPATH_CONFIGURATION_NAME, providedClasspath.flatMap(c -> c.getElements().map(e -> e.stream().map(f -> f.getAsFile().getName()).collect(toSet()))));
 
-      Provider<String> voltronClasspath = runtimeClasspath.zip(service.zip(voltron, FileCollection::plus), FileCollection::minus)
+      Provider<String> voltronClasspath = runtimeClasspath.zip(providedClasspath, FileCollection::minus)
               .map(c -> c.getFiles().stream().map(File::getName).collect(joining(" ")));
       jar.manifest(manifest -> manifest.attributes(mapOf(Attributes.Name.CLASS_PATH.toString(), voltronClasspath)));
     });

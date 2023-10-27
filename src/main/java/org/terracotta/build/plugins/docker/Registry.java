@@ -12,12 +12,31 @@ import java.util.function.Function;
 
 public interface Registry extends Named {
 
+  /**
+   * Root URI for the Docker registry.
+   *
+   * @return registry root uri
+   */
   Property<URI> getUri();
 
+  /**
+   * Organization all images will be published under.
+   *
+   * @return target organization
+   */
   Property<String> getOrganization();
 
+  /**
+   * Credentials to authenticate against the registry.
+   *
+   * @return registry authentication credential
+   */
   Property<PasswordCredentials> getCredentials();
 
+  /**
+   * Retry parameters to use when pushing to the registry
+   * @return
+   */
   @Nested
   Retry getRetry();
 
