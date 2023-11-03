@@ -169,14 +169,14 @@ public abstract class PackageInternal implements Package {
       tasks.named(LifecycleBasePlugin.ASSEMBLE_TASK_NAME).configure(task -> task.dependsOn(javadocJar));
 
     } else {
-      Provider<DependencyScopeConfiguration> javadocClasspath = configurations.dependencyScope(camelName("javadocClasspath"), c -> {
+      Provider<DependencyScopeConfiguration> additionalJavadoc = configurations.dependencyScope(camelName("additionalJavadoc"), c -> {
         c.setDescription("Additional javadoc generation dependencies.");
         javadocSettings.getClasspath().get().forEach(notation -> c.getDependencies().add(notation));
       });
 
-      Provider<ResolvableConfiguration> additionalJavadocClasspath = configurations.resolvable(camelName("additionalJavadocClasspath"), c -> {
-        c.setDescription(description("Additional classpath for {0} javadoc generation."));
-        c.extendsFrom(javadocClasspath.get());
+      Provider<ResolvableConfiguration> javadocClasspath = configurations.resolvable(camelName("javadocClasspath"), c -> {
+        c.setDescription(description("Classpath for {0} javadoc generation."));
+        c.extendsFrom(additionalJavadoc.get(), configurations.getByName(camelName(CONTENTS_CONFIGURATION_NAME)));
         getJvmPluginServices().configureAsRuntimeClasspath(c);
       });
 
@@ -187,9 +187,7 @@ public abstract class PackageInternal implements Package {
         task.source(tasks.named(camelName(SOURCES_TASK_NAME)));
         task.include("**/*.java");
         task.getModularity().getInferModulePath().set(false);
-        task.setClasspath(configurations.getByName(camelName(CONTENTS_RUNTIME_CLASSPATH_CONFIGURATION_NAME))
-            .plus(configurations.getByName(camelName(MAXIMAL_UNPACKAGED_RUNTIME_CLASSPATH_CONFIGURATION_NAME)))
-            .plus(additionalJavadocClasspath.get()));
+        task.setClasspath(javadocClasspath.get());
         task.setDestinationDir(getProject().getLayout().getBuildDirectory().dir(kebabName(JAVADOC_TASK_NAME)).get().getAsFile());
       });
       TaskProvider<Jar> javadocJar = tasks.register(camelName("javadocJar"), Jar.class, jar -> {
