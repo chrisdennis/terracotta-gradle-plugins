@@ -235,7 +235,7 @@ public class CopyrightPlugin implements Plugin<Project> {
 
       return expectedUpdates.entrySet().stream().filter(update -> update.getKey().isFile()).map(update -> {
         try (Stream<String> lines = Files.lines(update.getKey().toPath(), StandardCharsets.UTF_8)) {
-          if (lines.map(pattern::matcher).filter(Matcher::find).anyMatch(matcher -> update.getValue().equals(endYear.applyAsInt(matcher)))) {
+          if (lines.map(pattern::matcher).filter(Matcher::find).anyMatch(matcher -> update.getValue() <= endYear.applyAsInt(matcher))) {
             return null;
           } else {
             return update.getKey();
