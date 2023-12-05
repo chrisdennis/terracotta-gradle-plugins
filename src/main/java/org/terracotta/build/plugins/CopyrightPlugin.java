@@ -14,6 +14,7 @@ import org.gradle.api.plugins.quality.CheckstylePlugin;
 import org.gradle.api.provider.Property;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.resources.TextResource;
+import org.gradle.api.services.ServiceReference;
 import org.gradle.api.specs.Specs;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.Internal;
@@ -23,10 +24,9 @@ import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.TaskCollection;
 import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.util.PatternSet;
-import org.gradle.internal.exceptions.MultiCauseException;
 import org.gradle.language.base.plugins.LifecycleBasePlugin;
 import org.gradle.process.ExecSpec;
-import org.gradle.process.internal.ExecException;
+import org.terracotta.build.services.Git;
 
 import javax.inject.Inject;
 import java.io.File;
@@ -39,8 +39,6 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.temporal.ChronoField;
 import java.util.AbstractMap;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
@@ -54,9 +52,7 @@ import java.util.stream.Stream;
 
 import static java.lang.Integer.parseInt;
 import static java.util.regex.Pattern.CASE_INSENSITIVE;
-import static org.gradle.internal.Actions.composite;
 import static org.gradle.language.base.plugins.LifecycleBasePlugin.VERIFICATION_GROUP;
-import static org.terracotta.build.ExecUtils.execUnder;
 import static org.terracotta.build.PluginUtils.capitalize;
 
 /**
@@ -161,12 +157,8 @@ public class CopyrightPlugin implements Plugin<Project> {
 
   public static abstract class CopyrightUpdateCheck extends SourceTask {
 
-    public CopyrightUpdateCheck() {
-      getGitExecutable().convention("git");
-    }
-
-    @Input
-    public abstract Property<String> getGitExecutable();
+    @ServiceReference("git")
+    public abstract Property<Git> getGit();
 
     @Input
     public abstract Property<Pattern> getPattern();
@@ -247,24 +239,12 @@ public class CopyrightPlugin implements Plugin<Project> {
     }
 
     private String git(Action<ExecSpec> action) {
-      return execUnder(this, composite(exec -> exec.setExecutable(getGitExecutable().get()), action));
+      return getGit().get().execute(action);
     }
 
     @SafeVarargs
-    private final String tryGit(Action<ExecSpec>... executions) {
-      List<GradleException> failures = new ArrayList<>();
-      for (Action<ExecSpec> execution : executions) {
-        try {
-          return git(execution);
-        } catch (ExecException e) {
-          failures.add(e);
-          getLogger().debug("git execution failed, trying again: ", e);
-        }
-      }
-      throw failures.stream().reduce((a, b) -> {
-        a.addSuppressed(b);
-        return a;
-      }).orElseThrow(AssertionError::new);
+    private final String tryGit(Action<ExecSpec> action, Action<ExecSpec>... fallbacks) {
+      return getGit().get().executeOrFallback(action, fallbacks);
     }
   }
 }

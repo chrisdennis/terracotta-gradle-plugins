@@ -15,10 +15,13 @@ import org.gradle.api.tasks.Sync;
 import org.gradle.api.tasks.TaskProvider;
 import org.gradle.language.base.plugins.LifecycleBasePlugin;
 import org.terracotta.build.plugins.CopyrightPlugin;
+import org.terracotta.build.plugins.buildinfo.BuildInfo;
+import org.terracotta.build.plugins.buildinfo.BuildInfoPlugin;
 import org.terracotta.build.plugins.docker.DockerEcosystemPlugin.DockerExtension;
 
 import java.io.File;
 import java.net.URI;
+import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -39,13 +42,16 @@ public class DockerBuildPlugin implements Plugin<Project> {
 
   @Override
   public void apply(Project project) {
+    project.getPlugins().apply(BuildInfoPlugin.class);
     project.getPlugins().apply(DockerEcosystemPlugin.class);
 
     DockerExtension dockerExtension = project.getExtensions().getByType(DockerExtension.class);
 
     DockerBuildExtension buildExtension = ((ExtensionAware) dockerExtension).getExtensions().create("build", DockerBuildExtension.class);
 
-    configureBuildDefaults(project, buildExtension);
+    BuildInfo buildInfo = project.getExtensions().getByType(BuildInfo.class);
+
+    configureBuildDefaults(project, buildExtension, buildInfo);
 
     TaskProvider<Sync> dockerEnvironment = project.getTasks().register("dockerEnvironment", Sync.class, sync -> {
       sync.setDescription("Assembles the Docker build environment.");
@@ -188,7 +194,7 @@ public class DockerBuildPlugin implements Plugin<Project> {
             })));
   }
 
-  private void configureBuildDefaults(Project project, DockerBuildExtension dockerBuild) {
+  private void configureBuildDefaults(Project project, DockerBuildExtension dockerBuild, BuildInfo buildInfo) {
     dockerBuild.getRegistries().configureEach(registry -> registry.getCredentials().convention(
             project.getProviders().credentials(PasswordCredentials.class, registry.getName() + "Docker")));
 
@@ -205,6 +211,10 @@ public class DockerBuildPlugin implements Plugin<Project> {
     dockerBuild.getMetadata().put("gradle.build.host", getLocalHostName(project));
     dockerBuild.getMetadata().put("gradle.build.dir", project.getRootDir().getAbsolutePath());
     dockerBuild.getMetadata().put("gradle.build.project", project.getPath());
+
+    dockerBuild.getMetadata().put("org.opencontainers.image.version", buildInfo.getVersion().map(Objects::toString));
+    dockerBuild.getMetadata().put("org.opencontainers.image.created", buildInfo.getBuildTimestampISO8601());
+    dockerBuild.getMetadata().put("org.opencontainers.image.revision", buildInfo.getRevision());
   }
 
   public Object limitedEval(Object version, DockerExtension extension, String expression) {

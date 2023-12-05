@@ -1,7 +1,6 @@
 package org.terracotta.build.plugins.docker;
 
 import org.gradle.api.Action;
-import org.gradle.api.logging.LogLevel;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
 import org.gradle.api.provider.Property;
@@ -10,17 +9,13 @@ import org.gradle.api.services.BuildService;
 import org.gradle.api.services.BuildServiceParameters;
 import org.gradle.process.ExecOperations;
 import org.gradle.process.ExecSpec;
-import org.gradle.process.internal.ExecException;
+import org.terracotta.build.ExecUtils;
 
 import javax.inject.Inject;
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.net.URI;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -30,8 +25,7 @@ import static java.nio.file.attribute.PosixFilePermission.OWNER_EXECUTE;
 import static java.nio.file.attribute.PosixFilePermission.OWNER_READ;
 import static java.nio.file.attribute.PosixFilePermission.OWNER_WRITE;
 import static java.util.EnumSet.of;
-import static org.terracotta.build.OutputUtils.logTo;
-import static org.terracotta.build.OutputUtils.tee;
+import static org.gradle.internal.Actions.composite;
 
 public abstract class DockerRegistryService implements BuildService<DockerRegistryService.Parameters>, AutoCloseable {
 
@@ -106,22 +100,7 @@ public abstract class DockerRegistryService implements BuildService<DockerRegist
   }
 
   private void docker(Action<ExecSpec> action) {
-    Provider<String> docker = getParameters().getDocker();
-
-    ByteArrayOutputStream mergedBytes = new ByteArrayOutputStream();
-    OutputStream standardOut = tee(logTo(LOGGER, LogLevel.INFO), mergedBytes);
-    OutputStream errorOut = tee(logTo(LOGGER, LogLevel.INFO), mergedBytes);
-    try {
-      getExecOperations().exec(spec -> {
-        spec.executable(docker.get());
-        spec.setStandardOutput(standardOut);
-        spec.setErrorOutput(errorOut);
-        action.execute(spec);
-      }).assertNormalExitValue();
-    } catch (ExecException e) {
-      LOGGER.error(StandardCharsets.UTF_8.decode(ByteBuffer.wrap(mergedBytes.toByteArray())).toString());
-      throw e;
-    }
+    ExecUtils.execute(getExecOperations(), composite(spec -> spec.executable(getParameters().getDocker().get()), action));
   }
 
   public interface Parameters extends BuildServiceParameters {
