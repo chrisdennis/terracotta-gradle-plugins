@@ -1,25 +1,25 @@
 package org.terracotta.build.plugins.buildinfo;
 
 import org.gradle.api.provider.Property;
+import org.gradle.api.provider.Provider;
 
-import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 
-public abstract class BuildInfoExtension implements BuildInfo {
-  @Override
-  public abstract Property<Boolean> getHasLocalChange();
+public interface BuildInfoExtension {
+  Property<Boolean> getHasLocalChange();
 
-  @Override
-  public abstract Property<String> getBranch();
+  Property<String> getBranch();
 
-  @Override
-  public abstract Property<String> getCommitHash();
+  Property<String> getCommitHash();
 
-  @Override
-  public abstract Property<String> getRevision();
+  Property<String> getRevision();
 
-  @Override
-  public abstract Property<StructuredVersion> getVersion();
+  Property<StructuredVersion> getVersion();
 
-  @Override
-  public abstract Property<Instant> getBuildTimestamp();
+  Property<ZonedDateTime> getBuildTimestamp();
+
+  default Provider<String> getBuildTimestampISO8601() {
+    return getBuildTimestamp().map(DateTimeFormatter.ISO_INSTANT::format);
+  }
 }

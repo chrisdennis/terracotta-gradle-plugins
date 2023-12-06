@@ -7,20 +7,21 @@ import org.gradle.process.internal.ExecException;
 import org.jetbrains.annotations.NotNull;
 import org.terracotta.build.services.Git;
 
-import java.time.Instant;
+import java.time.ZonedDateTime;
 import java.util.Objects;
 
+@SuppressWarnings("UnstableApiUsage")
 public class BuildInfoPlugin implements Plugin<Project> {
 
   @Override
   public void apply(@NotNull Project project) {
     final Provider<String> overrideVersion = project.getProviders().gradleProperty("overrideVersion");
     final Provider<String> defaultVersion = project.getProviders().gradleProperty("defaultVersion");
-    final Provider<String> version = project.provider(project::getVersion).map(Objects::toString);
+    final Provider<String> version = project.provider(project::getVersion).filter(v -> v != Project.DEFAULT_VERSION).map(Objects::toString);
     final Provider<Git> git = Git.getOrInstall(project);
-    final BuildInfo extension = project.getExtensions().create(BuildInfo.class, "buildInfo", BuildInfoExtension.class);
+    final BuildInfoExtension extension = project.getExtensions().create(BuildInfoExtension.class, "buildInfo", BuildInfoExtension.class);
 
-    extension.getBuildTimestamp().convention(Instant.now())
+    extension.getBuildTimestamp().convention(ZonedDateTime.now())
         .finalizeValueOnRead();
 
     extension.getVersion().convention(overrideVersion
@@ -68,6 +69,8 @@ public class BuildInfoPlugin implements Plugin<Project> {
                 extension.getCommitHash()))
     ).finalizeValueOnRead();
 
-    project.setVersion(extension.getVersion().get());
+    if (extension.getVersion().isPresent()) {
+      project.setVersion(extension.getVersion().get());
+    }
   }
 }
