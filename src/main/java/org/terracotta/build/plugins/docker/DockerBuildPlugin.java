@@ -15,7 +15,7 @@ import org.gradle.api.tasks.Sync;
 import org.gradle.api.tasks.TaskProvider;
 import org.gradle.language.base.plugins.LifecycleBasePlugin;
 import org.terracotta.build.plugins.CopyrightPlugin;
-import org.terracotta.build.plugins.buildinfo.BuildInfo;
+import org.terracotta.build.plugins.buildinfo.BuildInfoExtension;
 import org.terracotta.build.plugins.buildinfo.BuildInfoPlugin;
 import org.terracotta.build.plugins.docker.DockerEcosystemPlugin.DockerExtension;
 
@@ -49,7 +49,7 @@ public class DockerBuildPlugin implements Plugin<Project> {
 
     DockerBuildExtension buildExtension = ((ExtensionAware) dockerExtension).getExtensions().create("build", DockerBuildExtension.class);
 
-    BuildInfo buildInfo = project.getExtensions().getByType(BuildInfo.class);
+    BuildInfoExtension buildInfo = project.getExtensions().getByType(BuildInfoExtension.class);
 
     configureBuildDefaults(project, buildExtension, buildInfo);
 
@@ -194,7 +194,7 @@ public class DockerBuildPlugin implements Plugin<Project> {
             })));
   }
 
-  private void configureBuildDefaults(Project project, DockerBuildExtension dockerBuild, BuildInfo buildInfo) {
+  private void configureBuildDefaults(Project project, DockerBuildExtension dockerBuild, BuildInfoExtension buildInfo) {
     dockerBuild.getRegistries().configureEach(registry -> registry.getCredentials().convention(
             project.getProviders().credentials(PasswordCredentials.class, registry.getName() + "Docker")));
 
