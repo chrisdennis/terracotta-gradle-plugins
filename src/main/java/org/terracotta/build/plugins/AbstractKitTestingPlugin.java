@@ -97,11 +97,11 @@ public abstract class AbstractKitTestingPlugin implements Plugin<Project> {
       });
     });
 
-    kitDirectory.set(kitPreparation.flatMap(task -> {
-      if (task.getState().getSkipped()) {
-        return project.getLayout().dir(kitPath.map(FileCollection::getSingleFile));
-      } else {
+    kitDirectory.set(kitPreparation.flatMap(prep -> {
+      if (prep.isEnabled() && prep.getOnlyIf().isSatisfiedBy(prep)) {
         return getCustomKitDirectory();
+      } else {
+        return project.getLayout().dir(kitPath.map(FileCollection::getSingleFile));
       }
     }));
 
