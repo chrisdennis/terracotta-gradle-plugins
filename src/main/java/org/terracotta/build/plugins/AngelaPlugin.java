@@ -118,10 +118,11 @@ public class AngelaPlugin implements Plugin<Project> {
             task.systemProperty("angela.java.resolver", "user"); // disable toolchain, trust JAVA_HOME
             task.systemProperty("angela.distribution", requireNonNull(project.property("version")));
             task.getJvmArgumentProviders().add(() -> {
-              if (customKitPreparation.get().getState().getSkipped()) {
-                return singleton("-Dangela.kitInstallationDir=" + kitPath.get().getSingleFile().getAbsolutePath());
-              } else {
+              Sync prep = customKitPreparation.get();
+              if (prep.isEnabled() && prep.getOnlyIf().isSatisfiedBy(prep)) {
                 return singleton("-Dangela.kitInstallationDir=" + customKitDir.get().getAsFile().getAbsolutePath());
+              } else {
+                return singleton("-Dangela.kitInstallationDir=" + kitPath.get().getSingleFile().getAbsolutePath());
               }
             });
 

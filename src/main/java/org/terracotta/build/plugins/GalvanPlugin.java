@@ -7,6 +7,7 @@ import org.gradle.api.artifacts.ConfigurationContainer;
 import org.gradle.api.artifacts.DependencyScopeConfiguration;
 import org.gradle.api.artifacts.ResolvableConfiguration;
 import org.gradle.api.file.Directory;
+import org.gradle.api.file.FileCollection;
 import org.gradle.api.plugins.JvmEcosystemPlugin;
 import org.gradle.api.plugins.JvmTestSuitePlugin;
 import org.gradle.api.plugins.jvm.JvmTestSuite;
@@ -105,10 +106,11 @@ public class GalvanPlugin implements Plugin<Project> {
       task.dependsOn(customKitPreparation);
 
       task.getJvmArgumentProviders().add(() -> {
-        if (customKitPreparation.get().getState().getSkipped()) {
-          return Collections.singleton("-DkitInstallationPath=" + kitPath.get().getSingleFile().getAbsolutePath());
-        } else {
+        Sync prep = customKitPreparation.get();
+        if (prep.isEnabled() && prep.getOnlyIf().isSatisfiedBy(prep)) {
           return Collections.singleton("-DkitInstallationPath=" + customKitDir.get().getAsFile().getAbsolutePath());
+        } else {
+          return Collections.singleton("-DkitInstallationPath=" + kitPath.get().getSingleFile().getAbsolutePath());
         }
       });
       task.systemProperty("kitTestDirectory", galvanDir.get().getAsFile().getAbsolutePath());
