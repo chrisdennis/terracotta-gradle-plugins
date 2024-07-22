@@ -1,0 +1,19 @@
+^#!
+^<\?xml.*>$
+^<!DOCTYPE .*>$
+^\W*$
+^\W*\QCopyright Terracotta, Inc.\E$
+^\W*\QCopyright Super iPaaS Integration LLC, an IBM Company\E$
+^\W*$
+^\W*\QLicensed under the Apache License, Version 2.0 (the "License");\E$
+^\W*\Qyou may not use this file except in compliance with the License.\E$
+^\W*\QYou may obtain a copy of the License at\E$
+^\W*\Q\E$
+^\W*\Q    http://www.apache.org/licenses/LICENSE-2.0\E$
+^\W*$
+^\W*\QUnless required by applicable law or agreed to in writing, software\E$
+^\W*\Qdistributed under the License is distributed on an "AS IS" BASIS,\E$
+^\W*\QWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\E$
+^\W*\QSee the License for the specific language governing permissions and\E$
+^\W*\Qlimitations under the License.\E$
+^\W*$
