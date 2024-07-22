@@ -11,6 +11,7 @@ import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.plugins.JvmEcosystemPlugin;
 import org.gradle.api.plugins.quality.Checkstyle;
 import org.gradle.api.plugins.quality.CheckstylePlugin;
+import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.resources.TextResource;
@@ -39,6 +40,8 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.temporal.ChronoField;
 import java.util.AbstractMap;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
@@ -51,7 +54,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static java.lang.Integer.parseInt;
-import static java.util.regex.Pattern.CASE_INSENSITIVE;
 import static org.gradle.language.base.plugins.LifecycleBasePlugin.VERIFICATION_GROUP;
 import static org.terracotta.build.PluginUtils.capitalize;
 
@@ -86,8 +88,12 @@ public class CopyrightPlugin implements Plugin<Project> {
     });
     TaskCollection<CopyrightUpdateCheck> updateChecks = project.getTasks().withType(CopyrightUpdateCheck.class);
     updateChecks.configureEach(task -> {
-      task.getPattern().value(Pattern.compile("copyright\\s+(?:\\(c\\)|\u00a9)\\s+(?:(?:\\d{4}-)?\\d{4},\\s*)*(?:\\d{4}-)?(?<end>\\d{4})\\s+", CASE_INSENSITIVE));
-      task.getEndYear().value(matcher -> parseInt(matcher.group("end")));
+      task.getPatterns().convention(Arrays.asList(
+              //<declaration><entity><years> or <declaration><years><entity>
+              Pattern.compile("(?<declaration>[Cc]opyright(?:\\h+(?:\\([Cc]\\)|\\u00a9))?)\\h+(?<entity>.*?)\\h+(?<years>(?:(?:\\d{4}\\h*-\\h*)?\\d{4},\\h+)*(?:\\d{4}\\h*-\\h*)?(?<end>\\d{4}))"),
+              Pattern.compile("(?<declaration>[Cc]opyright(?:\\h+(?:\\([Cc]\\)|\\u00a9))?)\\h+(?<years>(?:(?:\\d{4}\\h*-\\h*)?\\d{4},\\h+)*(?:\\d{4}\\h*-\\h*)?(?<end>\\d{4}))\\h+(?<entity>.*?)")
+      ));
+      task.getEndYear().convention(matcher -> parseInt(matcher.group("end")));
     });
 
     TaskProvider<Task> centralTask = project.getTasks().register("copyright", task -> {
@@ -161,7 +167,7 @@ public class CopyrightPlugin implements Plugin<Project> {
     public abstract Property<Git> getGit();
 
     @Input
-    public abstract Property<Pattern> getPattern();
+    public abstract ListProperty<Pattern> getPatterns();
 
     @Internal
     public abstract Property<ToIntFunction<Matcher>> getEndYear();
@@ -222,12 +228,12 @@ public class CopyrightPlugin implements Plugin<Project> {
     }
 
     private Set<File> checkFiles(Map<File, Integer> expectedUpdates) {
-      Pattern pattern = getPattern().get();
+      List<Pattern> patterns = getPatterns().get();
       ToIntFunction<Matcher> endYear = getEndYear().get();
 
       return expectedUpdates.entrySet().stream().filter(update -> update.getKey().isFile()).map(update -> {
         try (Stream<String> lines = Files.lines(update.getKey().toPath(), StandardCharsets.UTF_8)) {
-          if (lines.map(pattern::matcher).filter(Matcher::find).anyMatch(matcher -> update.getValue() <= endYear.applyAsInt(matcher))) {
+          if (lines.flatMap(line -> patterns.stream().map(p -> p.matcher(line))).filter(Matcher::find).anyMatch(matcher -> update.getValue() <= endYear.applyAsInt(matcher))) {
             return null;
           } else {
             return update.getKey();

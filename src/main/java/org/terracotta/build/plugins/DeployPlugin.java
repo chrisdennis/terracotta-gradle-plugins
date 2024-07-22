@@ -80,13 +80,13 @@ public class DeployPlugin implements Plugin<Project> {
     project.getExtensions().configure(PublishingExtension.class, publishing -> publishing.getPublications().withType(MavenPublication.class).configureEach(mavenPublication -> {
       mavenPublication.pom(pom -> {
         pom.organization(org -> {
-          org.getName().set("Terracotta Inc., a wholly-owned subsidiary of Software AG USA, Inc.");
+          org.getName().set("Super iPaaS Integration LLC, an IBM Company");
           org.getUrl().set("http://terracotta.org");
         });
         pom.developers(devs -> devs.developer(dev -> {
           dev.getName().set("Terracotta Engineers");
           dev.getEmail().set("dev-internal@terracottatech.com");
-          dev.getOrganization().set("Terracotta Inc., a wholly-owned subsidiary of Software AG USA, Inc.");
+          dev.getOrganization().set("Super iPaaS Integration LLC, an IBM Company");
         }));
       });
 

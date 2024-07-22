@@ -62,7 +62,7 @@ public abstract class Git implements BuildService<Git.Parameters> {
       spec.executable(getParameters().getGitExecutable().get());
       spec.setWorkingDir(getParameters().getWorkingDir().get());
       spec.args("--no-pager");
-    }, action)).trim();
+    }, action));
   }
 
   public String executeOrFallback(Action<ExecSpec> action, Action<ExecSpec>... fallbacks) throws ExecException {
