@@ -55,12 +55,12 @@ public abstract class Git implements BuildService<Git.Parameters> {
 
   public String getCommitHash() throws ExecException {
     return Optional.ofNullable(System.getenv("GIT_COMMIT"))
-        .orElseGet(() -> execute(spec -> spec.args("rev-parse", "HEAD")));
+        .orElseGet(() -> execute(spec -> spec.args("rev-parse", "HEAD")).trim());
   }
 
   public String getBranch() throws ExecException {
     return Optional.ofNullable(System.getenv("GIT_BRANCH"))
-        .orElseGet(() -> execute(spec -> spec.args("rev-parse", "--abbrev-ref", "HEAD")));
+        .orElseGet(() -> execute(spec -> spec.args("rev-parse", "--abbrev-ref", "HEAD")).trim());
   }
 
   public String diff(String commitHash) throws ExecException {
@@ -71,7 +71,7 @@ public abstract class Git implements BuildService<Git.Parameters> {
     return execute(spec -> {
       spec.args("hash-object", "--stdin");
       spec.setStandardInput(new ByteArrayInputStream(data.getBytes(StandardCharsets.UTF_8)));
-    });
+    }).trim();
   }
 
   public String execute(Action<ExecSpec> action) throws ExecException {
