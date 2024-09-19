@@ -70,7 +70,7 @@ import static org.terracotta.build.PluginUtils.capitalize;
  * This sets up a bunch of default behaviors and provides a more direct configuration mechanism:
  * <pre>
  * deploy {
- *   groupId = 'com.terracottatech.internal'
+ *   groupId = 'org.terracotta'
  *   artifactId = 'security-common-test'
  *   name = 'Terracotta Security common test module'
  *   description = 'Contains code and files common for security testing'

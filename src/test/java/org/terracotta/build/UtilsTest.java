@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.terracottatech.build;
+package org.terracotta.build;
 
 import org.gradle.api.file.FileCopyDetails;
 import org.gradle.api.file.RelativePath;
@@ -29,7 +29,6 @@ import org.gradle.jvm.toolchain.JavaLauncher;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.terracotta.build.Utils;
 
 import java.util.HashMap;
 import java.util.Map;
