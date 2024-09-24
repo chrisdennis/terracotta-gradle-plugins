@@ -64,7 +64,7 @@ public abstract class Git implements BuildService<Git.Parameters> {
   }
 
   public String diff(String commitHash) throws ExecException {
-    return execute(spec -> spec.args("diff", commitHash, "."));
+    return execute(spec -> spec.args("diff", commitHash, "--", "."));
   }
 
   public String hash(String data) throws ExecException {
