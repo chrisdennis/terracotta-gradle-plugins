@@ -79,7 +79,7 @@ gradlePlugin {
     }
     buildInfo {
       id = 'org.terracotta.build.build-info'
-      implementationClass = 'org.terracotta.build.plugins.BuildInfoPlugin'
+      implementationClass = 'org.terracotta.build.plugins.buildinfo.BuildInfoPlugin'
     }
   }
 }
