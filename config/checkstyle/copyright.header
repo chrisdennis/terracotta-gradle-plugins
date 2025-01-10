@@ -3,7 +3,7 @@
 ^<!DOCTYPE .*>$
 ^\W*$
 ^\W*\QCopyright Terracotta, Inc.\E$
-^\W*\QCopyright Super iPaaS Integration LLC, an IBM Company 2024\E$
+^\W*Copyright IBM Corp. (?:\d{4}, )?(?:\d{4})\W*$
 ^\W*$
 ^\W*\QLicensed under the Apache License, Version 2.0 (the "License");\E$
 ^\W*\Qyou may not use this file except in compliance with the License.\E$
