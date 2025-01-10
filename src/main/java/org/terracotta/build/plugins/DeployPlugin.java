@@ -1,6 +1,6 @@
 /*
  * Copyright Terracotta, Inc.
- * Copyright Super iPaaS Integration LLC, an IBM Company 2024
+ * Copyright IBM Corp. 2024, 2025
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -97,13 +97,13 @@ public class DeployPlugin implements Plugin<Project> {
     project.getExtensions().configure(PublishingExtension.class, publishing -> publishing.getPublications().withType(MavenPublication.class).configureEach(mavenPublication -> {
       mavenPublication.pom(pom -> {
         pom.organization(org -> {
-          org.getName().set("Super iPaaS Integration LLC, an IBM Company");
+          org.getName().set("IBM Corporation");
           org.getUrl().set("http://terracotta.org");
         });
         pom.developers(devs -> devs.developer(dev -> {
           dev.getName().set("Terracotta Engineers");
           dev.getEmail().set("dev-internal@terracottatech.com");
-          dev.getOrganization().set("Super iPaaS Integration LLC, an IBM Company");
+          dev.getOrganization().set("IBM Corporation");
         }));
       });
 
