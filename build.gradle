@@ -81,5 +81,9 @@ gradlePlugin {
       id = 'org.terracotta.build.build-info'
       implementationClass = 'org.terracotta.build.plugins.buildinfo.BuildInfoPlugin'
     }
+    tool {
+      id = 'org.terracotta.build.tool'
+      implementationClass = 'org.terracotta.build.plugins.ToolPlugin'
+    }
   }
 }
