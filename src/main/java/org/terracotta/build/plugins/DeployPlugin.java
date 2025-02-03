@@ -19,6 +19,7 @@ package org.terracotta.build.plugins;
 
 import org.gradle.api.Action;
 import org.gradle.api.DefaultTask;
+import org.gradle.api.GradleException;
 import org.gradle.api.NamedDomainObjectSet;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
@@ -26,6 +27,8 @@ import org.gradle.api.Task;
 import org.gradle.api.artifacts.ModuleVersionIdentifier;
 import org.gradle.api.artifacts.ProjectDependency;
 import org.gradle.api.attributes.Category;
+import org.gradle.api.component.SoftwareComponent;
+import org.gradle.api.component.SoftwareComponentContainer;
 import org.gradle.api.file.RegularFileProperty;
 import org.gradle.api.internal.artifacts.configurations.ConfigurationContainerInternal;
 import org.gradle.api.internal.artifacts.ivyservice.projectmodule.ProjectComponentPublication;
@@ -178,17 +181,26 @@ public class DeployPlugin implements Plugin<Project> {
         java.withJavadocJar();
         java.withSourcesJar();
       });
-
-      project.afterEvaluate(p -> {
-        p.getExtensions().configure(PublishingExtension.class, publishing -> {
-          if (publishing.getPublications().isEmpty()) {
-            publishing.publications(publications -> publications.register("mavenJava", MavenPublication.class, mavenJava -> mavenJava.from(p.getComponents().getByName("java"))));
-          }
-        });
-      });
     });
 
     project.afterEvaluate(p -> {
+      p.getExtensions().configure(PublishingExtension.class, publishing -> {
+        if (publishing.getPublications().isEmpty()) {
+          SoftwareComponentContainer components = p.getComponents();
+
+          switch (components.size()) {
+            case 1:
+              SoftwareComponent component = components.iterator().next();
+              publishing.publications(publications -> publications.register("maven" + capitalize(component.getName()), MavenPublication.class, maven -> maven.from(component)));
+              break;
+            case 0:
+              throw new GradleException("No publications registered and no software components available: cannot apply the deploy plugin");
+            default:
+              throw new GradleException("No publications registered and multiple software components to disambiguate: cannot apply the deploy plugin");
+          }
+        }
+      });
+
       TaskCollection<GenerateMavenPom> poms = p.getTasks().withType(GenerateMavenPom.class);
 
       p.getTasks().withType(Jar.class).configureEach(jar -> poms.forEach(pomTask -> {

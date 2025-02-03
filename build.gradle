@@ -73,6 +73,10 @@ gradlePlugin {
       id = 'org.terracotta.build.package'
       implementationClass = 'org.terracotta.build.plugins.PackagePlugin'
     }
+    osgiPackaging {
+      id = 'org.terracotta.build.osgi-package'
+      implementationClass = 'org.terracotta.build.plugins.OsgiPackagePlugin'
+    }
     voltron {
       id = 'org.terracotta.build.voltron'
       implementationClass = 'org.terracotta.build.plugins.VoltronPlugin'

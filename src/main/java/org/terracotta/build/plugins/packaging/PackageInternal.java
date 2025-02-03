@@ -17,8 +17,6 @@
 
 package org.terracotta.build.plugins.packaging;
 
-import aQute.bnd.osgi.Constants;
-import aQute.bnd.version.MavenVersion;
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar;
 import org.gradle.api.Action;
 import org.gradle.api.DomainObjectSet;
@@ -70,7 +68,6 @@ import static org.gradle.api.artifacts.Dependency.DEFAULT_CONFIGURATION;
 import static org.gradle.api.attributes.DocsType.JAVADOC;
 import static org.gradle.api.attributes.DocsType.SOURCES;
 import static org.gradle.api.attributes.java.TargetJvmVersion.TARGET_JVM_VERSION_ATTRIBUTE;
-import static org.gradle.api.internal.tasks.JvmConstants.JAVA_COMPONENT_NAME;
 import static org.gradle.api.plugins.JavaBasePlugin.DOCUMENTATION_GROUP;
 import static org.gradle.api.plugins.JavaPlugin.API_CONFIGURATION_NAME;
 import static org.gradle.api.plugins.JavaPlugin.COMPILE_ONLY_API_CONFIGURATION_NAME;
@@ -83,6 +80,7 @@ import static org.gradle.api.plugins.JavaPlugin.SOURCES_ELEMENTS_CONFIGURATION_N
 import static org.terracotta.build.PluginUtils.capitalize;
 import static org.terracotta.build.Utils.coordinate;
 import static org.terracotta.build.Utils.mapOf;
+import static org.terracotta.build.plugins.PackagePlugin.COMPONENT_NAME;
 
 @SuppressWarnings("UnstableApiUsage")
 public abstract class PackageInternal implements Package {
@@ -124,8 +122,8 @@ public abstract class PackageInternal implements Package {
     TaskProvider<Jar> sourcesJar = tasks.register(camelName("sourcesJar"), Jar.class, jar -> {
       jar.setDescription(description("Assembles a jar archive containing {0} packaged sources."));
       jar.setGroup(BasePlugin.BUILD_GROUP);
-      jar.from(tasks.named(camelName(SOURCES_TASK_NAME)));
-      jar.from(tasks.named(camelName(JAR_TASK_NAME)), spec -> spec.include("META-INF/**", "LICENSE", "NOTICE"));
+      jar.from(tasks.named(getSourcesTaskName()));
+      jar.from(tasks.named(getJarTaskName()), spec -> spec.include("META-INF/**", "LICENSE", "NOTICE"));
       jar.getArchiveClassifier().set(kebabName("sources"));
     });
 
@@ -139,7 +137,7 @@ public abstract class PackageInternal implements Package {
       });
     });
 
-    getProject().getComponents().named(JAVA_COMPONENT_NAME, AdhocComponentWithVariants.class,
+    getProject().getComponents().named(COMPONENT_NAME, AdhocComponentWithVariants.class,
         java -> java.addVariantsFromConfiguration(sourcesElements.get(), variantDetails -> {}));
 
     tasks.named(LifecycleBasePlugin.ASSEMBLE_TASK_NAME).configure(task -> task.dependsOn(sourcesJar));
@@ -180,7 +178,7 @@ public abstract class PackageInternal implements Package {
         });
       });
 
-      getProject().getComponents().named("java", AdhocComponentWithVariants.class,
+      getProject().getComponents().named(COMPONENT_NAME, AdhocComponentWithVariants.class,
           java -> java.addVariantsFromConfiguration(javadocElements.get(), variantDetails -> {}));
 
       tasks.named(LifecycleBasePlugin.ASSEMBLE_TASK_NAME).configure(task -> task.dependsOn(javadocJar));
@@ -201,7 +199,7 @@ public abstract class PackageInternal implements Package {
         task.setDescription("Generates Javadoc API documentation for {0} packaged source code.");
         task.setGroup(DOCUMENTATION_GROUP);
         task.setTitle(getProject().getName() + " " + getProject().getVersion() + " API");
-        task.source(tasks.named(camelName(SOURCES_TASK_NAME)));
+        task.source(tasks.named(getSourcesTaskName()));
         task.include("**/*.java");
         task.getModularity().getInferModulePath().set(false);
         task.setClasspath(javadocClasspath.get());
@@ -223,7 +221,7 @@ public abstract class PackageInternal implements Package {
         });
       });
 
-      getProject().getComponents().named("java", AdhocComponentWithVariants.class,
+      getProject().getComponents().named(COMPONENT_NAME, AdhocComponentWithVariants.class,
           java -> java.addVariantsFromConfiguration(javadocElements.get(), variantDetails -> {}));
 
       tasks.named(LifecycleBasePlugin.ASSEMBLE_TASK_NAME).configure(task -> task.dependsOn(javadocJar));
@@ -235,7 +233,9 @@ public abstract class PackageInternal implements Package {
     ConfigurationContainerInternal configurations = (ConfigurationContainerInternal) getProject().getConfigurations();
     DependencyHandler dependencies = getProject().getDependencies();
     TaskContainer tasks = getProject().getTasks();
-    Provider<Integer> javaCompileVersion = getProject().getExtensions().getByType(JavaVersionPlugin.JavaVersions.class).getCompileVersion().map(JavaLanguageVersion::asInt);
+
+    Provider<Integer> javaCompileVersion = getProject().provider(() -> getProject().getExtensions().findByType(JavaVersionPlugin.JavaVersions.class))
+        .flatMap(JavaVersionPlugin.JavaVersions::getCompileVersion).orElse(JavaLanguageVersion.current()).map(JavaLanguageVersion::asInt);
 
     Provider<Configuration> commonContentsApi = configurations.named(camelPrefix(PackagePlugin.COMMON_PREFIX, CONTENTS_API_CONFIGURATION_NAME));
     Provider<Configuration> commonContents = configurations.named(camelPrefix(PackagePlugin.COMMON_PREFIX, CONTENTS_CONFIGURATION_NAME));
@@ -258,6 +258,7 @@ public abstract class PackageInternal implements Package {
       c.setDescription(description("Runtime classpath of {0} package contents."));
       c.attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaCompileVersion));
       getJvmPluginServices().configureAsRuntimeClasspath(c);
+      c.attributes(attr -> attr.attribute(Usage.USAGE_ATTRIBUTE, getProject().getObjects().named(Usage.class, UNPACKAGED_JAVA_RUNTIME)));
     });
 
     /*
@@ -307,7 +308,7 @@ public abstract class PackageInternal implements Package {
       }
     }).reduce(FileTree::plus).orElse(getProject().files().getAsFileTree()));
 
-    TaskProvider<Sync> sources = tasks.register(camelName(SOURCES_TASK_NAME), Sync.class, sync -> {
+    tasks.register(getSourcesTaskName(), Sync.class, sync -> {
       sync.setDescription(description("Collects the sources contributing to {0} packaged artifact."));
       sync.setGroup(DOCUMENTATION_GROUP);
       sync.dependsOn(contentsSourcesElements);
@@ -352,7 +353,7 @@ public abstract class PackageInternal implements Package {
               .attribute(Usage.USAGE_ATTRIBUTE, getProject().getObjects().named(Usage.class, UNPACKAGED_JAVA_RUNTIME)));
         });
 
-    TaskProvider<ShadowJar> shadowJar = tasks.register(camelName(JAR_TASK_NAME), ShadowJar.class, shadow -> {
+    TaskProvider<ShadowJar> shadowJar = tasks.register(getJarTaskName(), ShadowJar.class, shadow -> {
       shadow.setDescription(description("Assembles a jar archive containing {0} packaged classes."));
       shadow.setGroup(BasePlugin.BUILD_GROUP);
 
@@ -388,7 +389,7 @@ public abstract class PackageInternal implements Package {
       });
     });
 
-    Provider<ResolvableConfiguration> packagedRuntimeClasspath = configurations.resolvable(camelName(PACKAGED_RUNTIME_CLASSPATH_CONFIGURATION_NAME), c -> {
+    configurations.resolvable(getPackagedRuntimeClasspathConfigurationName(), c -> {
       c.setDescription(description("Runtime classpath of {0} packaged artifact."));
       c.extendsFrom(implementation.get(), runtimeOnly.get());
       getJvmPluginServices().configureAttributes(c, details -> details.withEmbeddedDependencies().runtimeUsage().library().asJar());
@@ -403,15 +404,7 @@ public abstract class PackageInternal implements Package {
       });
     }));
 
-    shadowJar.configure(shadow -> {
-      OsgiManifestJarExtension osgi = shadow.getExtensions().findByType(OsgiManifestJarExtension.class);
-      osgi.getClasspath().from(packagedRuntimeClasspath);
-      osgi.getSources().from(sources);
-
-      osgi.instruction(Constants.BUNDLE_VERSION, new MavenVersion(getProject().getVersion().toString()).getOSGiVersion().toString());
-    });
-
-    getProject().getComponents().named("java", AdhocComponentWithVariants.class, java -> {
+    getProject().getComponents().named(COMPONENT_NAME, AdhocComponentWithVariants.class, java -> {
       java.addVariantsFromConfiguration(packagedApiElements.get(), variantDetails -> variantDetails.mapToMavenScope("compile"));
       java.addVariantsFromConfiguration(packagedRuntimeElements.get(), variantDetails -> variantDetails.mapToMavenScope("runtime"));
     });
@@ -450,7 +443,7 @@ public abstract class PackageInternal implements Package {
       c.attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaCompileVersion));
       c.outgoing(o -> {
         feature.getCapabilities().all(o::capability);
-        o.artifact(getProject().getTasks().named(camelName(JAR_TASK_NAME)));
+        o.artifact(getProject().getTasks().named(getJarTaskName()));
       });
     });
 
@@ -461,11 +454,11 @@ public abstract class PackageInternal implements Package {
       c.attributes(attr -> attr.attributeProvider(TARGET_JVM_VERSION_ATTRIBUTE, javaCompileVersion));
       c.outgoing(outgoing -> {
         feature.getCapabilities().all(outgoing::capability);
-        outgoing.artifact(getProject().getTasks().named(camelName(JAR_TASK_NAME)));
+        outgoing.artifact(getProject().getTasks().named(getJarTaskName()));
       });
     });
 
-    getProject().getComponents().named(JAVA_COMPONENT_NAME, AdhocComponentWithVariants.class, java -> {
+    getProject().getComponents().named(COMPONENT_NAME, AdhocComponentWithVariants.class, java -> {
       java.addVariantsFromConfiguration(packagedApiElements.get(), variantDetails -> {
         variantDetails.mapToMavenScope("compile");
         variantDetails.mapToOptional();
@@ -505,6 +498,18 @@ public abstract class PackageInternal implements Package {
     } else {
       return prefix + capitalize(string);
     }
+  }
+
+  public String getJarTaskName() {
+    return camelName(JAR_TASK_NAME);
+  }
+
+  public String getSourcesTaskName() {
+    return camelName(SOURCES_TASK_NAME);
+  }
+
+  public String getPackagedRuntimeClasspathConfigurationName() {
+    return camelName(PACKAGED_RUNTIME_CLASSPATH_CONFIGURATION_NAME);
   }
 
   interface JavadocInternal extends Javadoc {
