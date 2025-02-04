@@ -31,17 +31,12 @@ import org.gradle.api.component.AdhocComponentWithVariants;
 import org.gradle.api.component.SoftwareComponentFactory;
 import org.gradle.api.internal.artifacts.JavaEcosystemSupport;
 import org.gradle.api.plugins.BasePlugin;
-import org.gradle.api.publish.PublishingExtension;
-import org.gradle.api.publish.maven.MavenPublication;
-import org.gradle.api.publish.maven.plugins.MavenPublishPlugin;
-import org.terracotta.build.plugins.packaging.OsgiManifestJarExtension;
 import org.terracotta.build.plugins.packaging.PackageInternal;
 import org.terracotta.build.plugins.packaging.PackagingExtension;
 import org.terracotta.build.plugins.packaging.PackagingExtensionInternal;
 
 import javax.inject.Inject;
 
-import static org.gradle.api.internal.tasks.JvmConstants.JAVA_COMPONENT_NAME;
 import static org.gradle.api.plugins.JavaPlugin.API_CONFIGURATION_NAME;
 import static org.gradle.api.plugins.JavaPlugin.COMPILE_ONLY_API_CONFIGURATION_NAME;
 import static org.gradle.api.plugins.JavaPlugin.IMPLEMENTATION_CONFIGURATION_NAME;
@@ -58,6 +53,7 @@ import static org.terracotta.build.plugins.packaging.PackageInternal.camelPrefix
 @SuppressWarnings("UnstableApiUsage")
 public abstract class PackagePlugin implements Plugin<Project> {
 
+  public static final String COMPONENT_NAME = "package";
   public static final String COMMON_PREFIX = "common";
 
   @Inject
@@ -67,11 +63,8 @@ public abstract class PackagePlugin implements Plugin<Project> {
   public void apply(Project project) {
     project.getPlugins().apply(BasePlugin.class);
 
-    AdhocComponentWithVariants javaComponent = getSoftwareComponentFactory().adhoc(JAVA_COMPONENT_NAME);
-    project.getComponents().add(javaComponent);
-
-    project.getTasks().withType(ShadowJar.class).configureEach(shadow -> shadow.getExtensions().create("osgi", OsgiManifestJarExtension.class, shadow));
-
+    AdhocComponentWithVariants component = getSoftwareComponentFactory().adhoc(COMPONENT_NAME);
+    project.getComponents().add(component);
 
     ConfigurationContainer configurations = project.getConfigurations();
     NamedDomainObjectProvider<DependencyScopeConfiguration> commonContentsApi = configurations.dependencyScope(camelPrefix(COMMON_PREFIX, CONTENTS_API_CONFIGURATION_NAME),
@@ -93,18 +86,11 @@ public abstract class PackagePlugin implements Plugin<Project> {
     PackagingExtensionInternal packaging = (PackagingExtensionInternal) project.getExtensions().create(PackagingExtension.class, "packaging", PackagingExtensionInternal.class);
     packaging.getDefaultPackage().create();
     packaging.getVariants().all(PackageInternal::create);
-
-    project.getPlugins().withType(MavenPublishPlugin.class).configureEach(plugin -> {
-      project.getExtensions().configure(PublishingExtension.class, publishing -> {
-        publishing.getPublications().register("mavenJava", MavenPublication.class, mavenPublication -> {
-          mavenPublication.from(javaComponent);
-        });
-      });
-    });
   }
 
-  public static void augmentAttributeSchema(AttributesSchema schema) {
-    schema.attribute(Usage.USAGE_ATTRIBUTE, strategy -> strategy.getCompatibilityRules().add(UnpackagedJavaRuntimeCompatibility.class));
+  public static void augmentAttributeSchema(Project project) {
+    project.getDependencies().getAttributesSchema().attribute(Usage.USAGE_ATTRIBUTE,
+        strategy -> strategy.getCompatibilityRules().add(UnpackagedJavaRuntimeCompatibility.class));
   }
 
   public static class UnpackagedJavaRuntimeCompatibility implements AttributeCompatibilityRule<Usage> {

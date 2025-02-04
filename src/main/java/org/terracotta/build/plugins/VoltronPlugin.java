@@ -22,7 +22,6 @@ import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.ModuleDependency;
-import org.gradle.api.artifacts.ProjectDependency;
 import org.gradle.api.artifacts.dsl.DependencyFactory;
 import org.gradle.api.capabilities.Capability;
 import org.gradle.api.file.FileCollection;
@@ -32,7 +31,6 @@ import org.gradle.api.plugins.JvmEcosystemPlugin;
 import org.gradle.api.plugins.JvmTestSuitePlugin;
 import org.gradle.api.plugins.jvm.JvmTestSuite;
 import org.gradle.api.provider.Provider;
-import org.gradle.api.tasks.FileNormalizer;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
 import org.gradle.api.tasks.bundling.Jar;
@@ -78,8 +76,10 @@ public class VoltronPlugin implements Plugin<Project> {
     project.getPlugins().withType(JvmTestSuitePlugin.class).configureEach(tests -> {
       project.getExtensions().configure(TestingExtension.class, testing -> {
         testing.getSuites().withType(JvmTestSuite.class).configureEach(testSuite -> {
-          testSuite.getDependencies().getImplementation().add(dependencyFactory.create(project).capabilities(capabilities ->
-                  capabilities.requireCapability(new ProjectDerivedCapability(project, XML_CONFIG_VARIANT_NAME))));
+          testSuite.getDependencies().getImplementation().add(dependencyFactory.create(project).capabilities(capabilities -> {
+            ProjectDerivedCapability derivedCapability = new ProjectDerivedCapability(project, XML_CONFIG_VARIANT_NAME);
+            capabilities.requireCapability(new DefaultImmutableCapability(derivedCapability.getGroup(), derivedCapability.getName(), derivedCapability.getVersion()));
+          }));
         });
       });
     });
@@ -115,10 +115,6 @@ public class VoltronPlugin implements Plugin<Project> {
   }
 
   public static Capability xmlConfigFeatureCapability(ModuleDependency dependency) {
-    if (dependency instanceof ProjectDependency) {
-      return new ProjectDerivedCapability(((ProjectDependency) dependency).getDependencyProject(), XML_CONFIG_VARIANT_NAME);
-    } else {
-      return new DefaultImmutableCapability(dependency.getGroup(), dependency.getName() + "-" + XML_CONFIG_VARIANT_NAME, null);
-    }
+    return new DefaultImmutableCapability(dependency.getGroup(), dependency.getName() + "-" + XML_CONFIG_VARIANT_NAME, null);
   }
 }

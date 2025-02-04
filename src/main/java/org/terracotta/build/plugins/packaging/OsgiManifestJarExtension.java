@@ -34,7 +34,6 @@ import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.provider.MapProperty;
-import org.gradle.api.provider.Property;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.ClasspathNormalizer;
@@ -60,14 +59,12 @@ public class OsgiManifestJarExtension {
   private static final Pattern OSGI_EXPORT_PATTERN = Pattern.compile("([^;,]+((?:;[^,:=]+:?=\"[^\"]+\")*))(?:,|$)");
 
   private final ShadowJar jarTask;
-  private final Property<Boolean> enabled;
   private final MapProperty<String, String> instructions;
   private final ConfigurableFileCollection classpath;
   private final ConfigurableFileCollection sources;
 
   public OsgiManifestJarExtension(ShadowJar jarTask) {
     this.jarTask = jarTask;
-    this.enabled = jarTask.getProject().getObjects().property(Boolean.class).convention(true);
     this.instructions = jarTask.getProject().getObjects().mapProperty(String.class, String.class);
     this.classpath = jarTask.getProject().getObjects().fileCollection();
     this.sources = jarTask.getProject().getObjects().fileCollection();
@@ -76,10 +73,6 @@ public class OsgiManifestJarExtension {
     jarTask.getInputs().files(sources).withPropertyName("osgi.sources");
     jarTask.getInputs().property("osgi.instructions", (Callable<Map<String, String>>) instructions::get);
     jarTask.doLast("buildManifest", new BuildAction());
-  }
-
-  public void enabled(boolean value) {
-    enabled.set(value);
   }
 
   public void instruction(String key, String value) {
@@ -109,39 +102,37 @@ public class OsgiManifestJarExtension {
   private class BuildAction implements Action<Task> {
     @Override
     public void execute(Task t) {
-      if (enabled.get()) {
-        try (Builder builder = new Builder()) {
-          File archiveFile = jarTask.getArchiveFile().get().getAsFile();
+      try (Builder builder = new Builder()) {
+        File archiveFile = jarTask.getArchiveFile().get().getAsFile();
 
-          jarTask.getProject().sync(sync -> sync.from(archiveFile).into(jarTask.getTemporaryDir()));
-          File archiveCopyFile = new File(jarTask.getTemporaryDir(), archiveFile.getName());
+        jarTask.getProject().sync(sync -> sync.from(archiveFile).into(jarTask.getTemporaryDir()));
+        File archiveCopyFile = new File(jarTask.getTemporaryDir(), archiveFile.getName());
 
-          try (aQute.bnd.osgi.Jar bundleJar = new aQute.bnd.osgi.Jar(archiveCopyFile)) {
-            builder.setJar(bundleJar);
-            builder.setClasspath(getClasspath().getFiles());
-            builder.setSourcepath(getSources().getFiles().toArray(new File[0]));
-            builder.addProperties(mergeInstructions(jarTask.getConfigurations(), getInstructions().get()));
+        try (aQute.bnd.osgi.Jar bundleJar = new aQute.bnd.osgi.Jar(archiveCopyFile)) {
+          builder.setJar(bundleJar);
+          builder.setClasspath(getClasspath().getFiles());
+          builder.setSourcepath(getSources().getFiles().toArray(new File[0]));
+          builder.addProperties(mergeInstructions(jarTask.getConfigurations(), getInstructions().get()));
 
-            try (aQute.bnd.osgi.Jar builtJar = builder.build()) {
-              builtJar.write(archiveFile);
-            }
-
-            if (!builder.isOk()) {
-              jarTask.getProject().delete(archiveFile);
-              builder.getErrors().forEach((String msg) -> {
-                Report.Location location = builder.getLocation(msg);
-                if ((location != null) && (location.file != null)) {
-                  jarTask.getLogger().error("{}:{}: error: {}", location.file, location.line, msg);
-                } else {
-                  jarTask.getLogger().error("error  : {}", msg);
-                }
-              });
-              throw new GradleException("Bundle " + archiveFile.getName() + " has errors");
-            }
+          try (aQute.bnd.osgi.Jar builtJar = builder.build()) {
+            builtJar.write(archiveFile);
           }
-        } catch (Exception e) {
-          throw new GradleException("Error building bundle", e);
+
+          if (!builder.isOk()) {
+            jarTask.getProject().delete(archiveFile);
+            builder.getErrors().forEach((String msg) -> {
+              Report.Location location = builder.getLocation(msg);
+              if ((location != null) && (location.file != null)) {
+                jarTask.getLogger().error("{}:{}: error: {}", location.file, location.line, msg);
+              } else {
+                jarTask.getLogger().error("error  : {}", msg);
+              }
+            });
+            throw new GradleException("Bundle " + archiveFile.getName() + " has errors");
+          }
         }
+      } catch (Exception e) {
+        throw new GradleException("Error building bundle", e);
       }
     }
 
