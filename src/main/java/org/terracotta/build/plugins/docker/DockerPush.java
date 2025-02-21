@@ -42,7 +42,7 @@ public abstract class DockerPush extends DockerTask {
   public void push() {
     List<String> tags = getTags().get();
     if (!tags.isEmpty()) {
-      Registry registry = getRegistry().get();
+      DockerRegistry registry = getRegistry().get();
       DockerRegistryService registryService = getRegistryServiceFor(registry);
 
       getTags().get().forEach(tag -> {
@@ -53,7 +53,7 @@ public abstract class DockerPush extends DockerTask {
   }
 
   @Internal
-  public abstract Property<Registry> getRegistry();
+  public abstract Property<DockerRegistry> getRegistry();
 
   @Input
   public abstract ListProperty<String> getTags();
