@@ -19,6 +19,7 @@ package org.terracotta.build.plugins.docker;
 
 import groovy.lang.Binding;
 import groovy.lang.GroovyShell;
+import org.gradle.api.ExtensiblePolymorphicDomainObjectContainer;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.attributes.Category;
@@ -137,13 +138,14 @@ public class DockerBuildPlugin implements Plugin<Project> {
       t.setDescription("Push all tagged Docker images to all remotes");
     });
     project.getTasks().register("dockerPushReadme", t -> {
-      t.dependsOn(project.getTasks().withType(DockerPushReadme.class));
+      t.dependsOn(project.getTasks().withType(MirantisPushReadme.class));
       t.setGroup(PublishingPlugin.PUBLISH_TASK_GROUP);
       t.setDescription("Push all new Docker repository descriptions to all remotes");
     });
 
-    buildExtension.getRegistries().all(registry -> {
-      TaskProvider<DockerTag> dockerTag = project.getTasks().register("dockerTagFor" + capitalize(registry.getName()), DockerTag.class, tag -> {
+    ExtensiblePolymorphicDomainObjectContainer<Registry> registries = buildExtension.getRegistries();
+    registries.all(registry -> {
+      project.getTasks().register(registry.getTagTaskName(), DockerTag.class, tag -> {
         tag.setDescription("Tag Docker images in preparation for pushing to " + registry.getName());
 
         Provider<String> registryPrefix = registry.getUri().zip(registry.getOrganization(), (uri, org) -> {
@@ -155,6 +157,10 @@ public class DockerBuildPlugin implements Plugin<Project> {
         tag.getTags().set(tagPrefix.zip(buildExtension.getTags(), (prefix, tags) -> tags.stream().map(t -> prefix + ":" + t).collect(toList())).orElse(emptyList()));
         tag.getImageId().set(dockerBuild.flatMap(DockerBuild::getImageId));
       });
+    });
+    registries.registerBinding(DockerRegistry.class, DockerRegistry.class);
+    registries.withType(DockerRegistry.class).all(registry -> {
+      TaskProvider<DockerTag> dockerTag = project.getTasks().named(registry.getTagTaskName(), DockerTag.class);
 
       project.getTasks().register("dockerPushTo" + capitalize(registry.getName()), DockerPush.class, push -> {
         push.setDescription("Push tagged Docker images to " + registry.getName());
@@ -164,8 +170,10 @@ public class DockerBuildPlugin implements Plugin<Project> {
 
         push.getRegistry().set(registry);
       });
-
-      project.getTasks().register("dockerPushReadmeTo" + capitalize(registry.getName()), DockerPushReadme.class, readmePush -> {
+    });
+    registries.registerBinding(MirantisRegistry.class, MirantisRegistry.class);
+    registries.withType(MirantisRegistry.class).all(registry -> {
+      project.getTasks().register(registry.getReadmePushTaskName(), MirantisPushReadme.class, readmePush -> {
         readmePush.setDescription("Push new Docker repository description to " + registry.getName());
 
         readmePush.getRegistry().set(registry);
@@ -212,7 +220,7 @@ public class DockerBuildPlugin implements Plugin<Project> {
   }
 
   private void configureBuildDefaults(Project project, DockerBuildExtension dockerBuild, BuildInfoExtension buildInfo) {
-    dockerBuild.getRegistries().configureEach(registry -> registry.getCredentials().convention(
+    dockerBuild.getRegistries().withType(DockerRegistry.class).configureEach(registry -> registry.getCredentials().convention(
             project.getProviders().credentials(PasswordCredentials.class, registry.getName() + "Docker")));
 
     Directory dockerSourceBase = project.getLayout().getProjectDirectory().dir("src/docker");

@@ -18,7 +18,7 @@
 package org.terracotta.build.plugins.docker;
 
 import org.gradle.api.Action;
-import org.gradle.api.NamedDomainObjectContainer;
+import org.gradle.api.ExtensiblePolymorphicDomainObjectContainer;
 import org.gradle.api.Project;
 import org.gradle.api.file.CopySpec;
 import org.gradle.api.file.DirectoryProperty;
@@ -30,9 +30,12 @@ import org.gradle.api.provider.Property;
 public abstract class DockerBuildExtension {
 
   private final CopySpec contents;
+  private final ExtensiblePolymorphicDomainObjectContainer<Registry> registries;
+
 
   public DockerBuildExtension(Project project) {
     this.contents = project.copySpec();
+    this.registries = project.getObjects().polymorphicDomainObjectContainer(Registry.class);
   }
 
   public CopySpec getContents() {
@@ -43,7 +46,9 @@ public abstract class DockerBuildExtension {
     action.execute(getContents());
   }
 
-  public abstract NamedDomainObjectContainer<Registry> getRegistries();
+  public ExtensiblePolymorphicDomainObjectContainer<Registry> getRegistries() {
+    return registries;
+  }
 
   public abstract RegularFileProperty getDockerFile();
 

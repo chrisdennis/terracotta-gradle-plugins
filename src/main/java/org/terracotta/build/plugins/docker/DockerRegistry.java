@@ -17,20 +17,33 @@
 
 package org.terracotta.build.plugins.docker;
 
-import org.gradle.api.Named;
+import org.gradle.api.Action;
+import org.gradle.api.credentials.PasswordCredentials;
 import org.gradle.api.provider.Property;
+import org.gradle.api.tasks.Nested;
 
-import java.net.URI;
+import java.time.Duration;
+import java.util.function.Function;
 
-import static org.terracotta.build.PluginUtils.capitalize;
+public interface DockerRegistry extends Registry {
 
-public interface Registry extends Named {
+  Property<PasswordCredentials> getCredentials();
 
-  Property<URI> getUri();
+  @Nested
+  Retry getRetry();
 
-  Property<String> getOrganization();
+  default void retry(Action<Retry> action) {
+    action.execute(getRetry());
+  }
 
-  default String getTagTaskName() {
-    return "dockerTagFor" + capitalize(getName());
+  interface Retry {
+
+    Property<Integer> getAttempts();
+
+    Property<Function<Integer, Duration>> getDelay();
+
+    default void delay(Duration delay) {
+      getDelay().set(unused -> delay);
+    }
   }
 }

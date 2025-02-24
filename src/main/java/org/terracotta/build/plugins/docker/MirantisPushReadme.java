@@ -44,16 +44,16 @@ import static java.nio.file.Files.readAllBytes;
 import static java.util.Collections.singletonMap;
 import static org.apache.hc.client5.http.fluent.Request.patch;
 
-public abstract class DockerPushReadme extends DockerTask {
+public abstract class MirantisPushReadme extends DockerTask {
 
-  public DockerPushReadme() {
+  public MirantisPushReadme() {
     setGroup(PublishingPlugin.PUBLISH_TASK_GROUP);
     onlyIf(t -> getReadmeFile().map(f -> f.getAsFile().exists()).getOrElse(false));
   }
 
   @TaskAction
   public void pushReadme() throws Exception {
-    Registry registry = getRegistry().get();
+    MirantisRegistry registry = getRegistry().get();
 
     URI pushUri = registry.getUri().get().resolve("api/v0/repositories/").resolve(registry.getOrganization().get() + "/").resolve(getRepositoryName().get());
     String body = toJson(singletonMap("longDescription", UTF_8.decode(wrap(readAllBytes(getReadmeFile().get().getAsFile().toPath())))));
@@ -80,7 +80,7 @@ public abstract class DockerPushReadme extends DockerTask {
   }
 
   @Input
-  public abstract Property<Registry> getRegistry();
+  public abstract Property<MirantisRegistry> getRegistry();
 
   @Input
   public abstract Property<String> getRepositoryName();

@@ -108,7 +108,7 @@ public abstract class DockerTask extends DefaultTask {
     return unused -> dockerAvailableProperty.get();
   }
 
-  protected DockerRegistryService getRegistryServiceFor(Registry registry) {
+  protected DockerRegistryService getRegistryServiceFor(DockerRegistry registry) {
     return getProject().getGradle().getSharedServices().registerIfAbsent(
             "dockerRegistry" + capitalize(registry.getName()),
             DockerRegistryService.class, serviceSpec -> serviceSpec.parameters(parameters -> {
@@ -122,7 +122,7 @@ public abstract class DockerTask extends DefaultTask {
             })).get();
   }
 
-  protected <T, F extends Throwable> T withRetry(String description, Registry.Retry retry, Class<F> retryable, Retryable<T, F> runnable) throws F {
+  protected <T, F extends Throwable> T withRetry(String description, DockerRegistry.Retry retry, Class<F> retryable, Retryable<T, F> runnable) throws F {
     int retryAttempts = retry.getAttempts().get();
     Function<Integer, Duration> delay = retry.getDelay().get();
     for (int i = 0; ; i++) {
