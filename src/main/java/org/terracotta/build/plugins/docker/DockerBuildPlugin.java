@@ -160,6 +160,9 @@ public class DockerBuildPlugin implements Plugin<Project> {
     });
     registries.registerBinding(DockerRegistry.class, DockerRegistry.class);
     registries.withType(DockerRegistry.class).all(registry -> {
+      registry.retry(retry -> {
+        retry.getAttempts().convention(0);
+      });
       TaskProvider<DockerTag> dockerTag = project.getTasks().named(registry.getTagTaskName(), DockerTag.class);
 
       project.getTasks().register("dockerPushTo" + capitalize(registry.getName()), DockerPush.class, push -> {
