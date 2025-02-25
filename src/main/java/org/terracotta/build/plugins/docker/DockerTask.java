@@ -124,7 +124,13 @@ public abstract class DockerTask extends DefaultTask {
 
   protected <T, F extends Throwable> T withRetry(String description, DockerRegistry.Retry retry, Class<F> retryable, Retryable<T, F> runnable) throws F {
     int retryAttempts = retry.getAttempts().get();
-    Function<Integer, Duration> delay = retry.getDelay().get();
+    Function<Integer, Duration> delay;
+    if (retryAttempts > 0) {
+      delay = retry.getDelay().get();
+    } else {
+      delay = i -> { throw new AssertionError(); };
+    }
+
     for (int i = 0; ; i++) {
       try {
         return runnable.execute();
