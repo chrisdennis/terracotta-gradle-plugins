@@ -75,11 +75,11 @@ public class DockerEcosystemPlugin implements Plugin<Project> {
               toMap(a -> a.getAsFile().getName().replaceAll("\\.iid$", ""), DockerBuild::readImageId))));
     }
 
-    public String getByName(String name) {
-      return images.get().get(name);
+    public Provider<String> getByName(String name) {
+      return images.map(m -> m.get(name));
     }
 
-    public String getAt(String name) {
+    public Provider<String> getAt(String name) {
       return getByName(name);
     }
 
