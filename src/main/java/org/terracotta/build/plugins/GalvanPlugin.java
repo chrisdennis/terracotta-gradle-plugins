@@ -57,7 +57,7 @@ public abstract class GalvanPlugin extends AbstractKitTestingPlugin {
     ConfigurationContainer configurations = project.getConfigurations();
 
     NamedDomainObjectProvider<DependencyScopeConfiguration> galvan = configurations.dependencyScope(FRAMEWORK_CONFIGURATION_NAME,
-        c -> c.defaultDependencies(defaultDeps -> defaultDeps.add(project.getDependencyFactory().create("org.terracotta", "galvan-platform-support", "[5,)"))));
+        c -> c.defaultDependencies(defaultDeps -> defaultDeps.add(project.getDependencyFactory().create("org.terracotta", "terracotta-dynamic-config-testing-galvan", "[5,)"))));
 
     project.getExtensions().configure(TestingExtension.class, testing -> testing.getSuites().withType(JvmTestSuite.class).configureEach(testSuite -> {
       configurations.named(testSuite.getSources().getImplementationConfigurationName(), config -> config.extendsFrom(galvan.get()));
