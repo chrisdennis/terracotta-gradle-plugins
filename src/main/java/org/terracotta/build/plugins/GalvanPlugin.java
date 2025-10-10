@@ -52,20 +52,22 @@ public abstract class GalvanPlugin extends AbstractKitTestingPlugin {
     super.apply(project);
 
     Provider<Directory> galvanDir = project.getLayout().getBuildDirectory().dir("galvan");
-    getCustomKitDirectory().set(galvanDir.map(d -> d.dir("custom-tc-db-kit")));
+    getCustomKitDirectory().set(galvanDir.map(d -> d.dir("custom-galvan-kit")));
 
     ConfigurationContainer configurations = project.getConfigurations();
 
-    NamedDomainObjectProvider<DependencyScopeConfiguration> galvan = configurations.dependencyScope(FRAMEWORK_CONFIGURATION_NAME,
-        c -> c.defaultDependencies(defaultDeps -> defaultDeps.add(project.getDependencyFactory().create("org.terracotta", "terracotta-dynamic-config-testing-galvan", "[5,)"))));
-
+    NamedDomainObjectProvider<DependencyScopeConfiguration> galvan = configurations.dependencyScope(FRAMEWORK_CONFIGURATION_NAME);
+    
     project.getExtensions().configure(TestingExtension.class, testing -> testing.getSuites().withType(JvmTestSuite.class).configureEach(testSuite -> {
       configurations.named(testSuite.getSources().getImplementationConfigurationName(), config -> config.extendsFrom(galvan.get()));
 
       testSuite.getTargets().configureEach(target -> target.getTestTask().configure(task -> {
         task.getJvmArgumentProviders().add(() -> asList(
             "-DkitInstallationPath=" + getKitDirectory().get().getAsFile().getAbsolutePath(),
-            "-DkitTestDirectory=" + galvanDir.get().getAsFile().getAbsolutePath()
+            "-DkitTestDirectory=" + galvanDir.get().getAsFile().getAbsolutePath(),
+            "-Dgalvan.plugin=" + getKitDirectory().get().file("server/plugins").getAsFile().getAbsolutePath(),
+            "-Dgalvan.dir=" + galvanDir.get().getAsFile().getAbsolutePath(),
+            "-Dgalvan.server=" + project.getLayout().getBuildDirectory().dir("tmp/tcserver").get().getAsFile().getAbsolutePath()
         ));
         // Use -Pgalvan.noclean to prevent Galvan from discarding test directories
         if (project.hasProperty("galvan.noclean")) {
