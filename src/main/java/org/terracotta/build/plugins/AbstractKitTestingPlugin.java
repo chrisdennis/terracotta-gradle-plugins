@@ -127,6 +127,9 @@ public abstract class AbstractKitTestingPlugin implements Plugin<Project> {
 
     project.getExtensions().configure(TestingExtension.class, testing -> testing.getSuites().withType(JvmTestSuite.class)
         .configureEach(testSuite -> testSuite.getTargets().configureEach(target -> target.getTestTask()
-            .configure(task -> task.dependsOn(kitPreparation)))));
+            .configure(task -> {
+              task.dependsOn(kitPreparation);
+              task.getInputs().dir(getKitDirectory()).withPropertyName("kitDirectory");
+            }))));
   }
 }
