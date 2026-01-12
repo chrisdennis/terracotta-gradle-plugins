@@ -129,7 +129,7 @@ public abstract class AbstractKitTestingPlugin implements Plugin<Project> {
         .configureEach(testSuite -> testSuite.getTargets().configureEach(target -> target.getTestTask()
             .configure(task -> {
               task.dependsOn(kitPreparation);
-              task.getInputs().dir(getKitDirectory()).withPropertyName("kitDirectory");
+              task.getInputs().dir(getKitDirectory()).withPropertyName(prefixed("KitDirectory"));
             }))));
   }
 }
