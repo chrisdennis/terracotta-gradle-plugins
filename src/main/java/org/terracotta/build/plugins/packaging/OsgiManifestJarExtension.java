@@ -20,7 +20,6 @@ package org.terracotta.build.plugins.packaging;
 import aQute.bnd.osgi.Builder;
 import aQute.bnd.osgi.Constants;
 import aQute.service.reporter.Report;
-import com.github.jengelman.gradle.plugins.shadow.ShadowStats;
 import com.github.jengelman.gradle.plugins.shadow.relocation.RelocateClassContext;
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar;
 import org.gradle.api.Action;
@@ -32,9 +31,9 @@ import org.gradle.api.artifacts.component.ComponentIdentifier;
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier;
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
 import org.gradle.api.file.ConfigurableFileCollection;
-import org.gradle.api.file.FileCollection;
 import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Provider;
+import org.gradle.api.provider.SetProperty;
 import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.ClasspathNormalizer;
 import org.gradle.api.tasks.Input;
@@ -49,7 +48,6 @@ import java.util.concurrent.Callable;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.joining;
@@ -136,7 +134,7 @@ public class OsgiManifestJarExtension {
       }
     }
 
-    private Map<String, String> mergeInstructions(List<FileCollection> configurations, Map<String, String> userInstructions) throws Exception {
+    private Map<String, String> mergeInstructions(SetProperty<Configuration> configurations, Map<String, String> userInstructions) throws Exception {
       Map<String, String> mergedInstructions = new HashMap<>(userInstructions);
       String userExportPackage = mergedInstructions.remove(Constants.EXPORT_PACKAGE);
 
@@ -149,16 +147,14 @@ public class OsgiManifestJarExtension {
       /*
        * Step 2: derive instructions from any input JAR that has an OSGi manifest.
        */
-      for (FileCollection files : configurations) {
-        Configuration config = (Configuration) files;
+      for (Configuration config : configurations.get()) {
         for (ResolvedArtifact artifact : config.getResolvedConfiguration().getResolvedArtifacts()) {
           try (aQute.bnd.osgi.Jar bndJar = new aQute.bnd.osgi.Jar(artifact.getFile())) {
             String exportHeader = bndJar.getManifest().getMainAttributes().getValue(Constants.EXPORT_PACKAGE);
             if (exportHeader == null) {
-              ShadowStats shadowStats = new ShadowStats();
-              Function<String, String> packageRelocator = jarTask.getRelocators().stream().<Function<String, String>>map(relocator -> path -> {
+              Function<String, String> packageRelocator = jarTask.getRelocators().get().stream().<Function<String, String>>map(relocator -> path -> {
                 if (relocator.canRelocateClass(path + ".")) {
-                  String relocated = relocator.relocateClass(new RelocateClassContext(path + ".", shadowStats));
+                  String relocated = relocator.relocateClass(new RelocateClassContext(path + "."));
                   return relocated.substring(0, relocated.length() - 1);
                 } else {
                   return path;
@@ -175,7 +171,7 @@ public class OsgiManifestJarExtension {
                     } else {
                       throw new IllegalArgumentException("Unhandled component identifier: " + componentIdentifier);
                     }
-                  }).map(p -> "[0-9]?" + p).collect(Collectors.toList()));
+                  }).map(p -> "[0-9]?" + p).toList());
             } else {
               // split the export header in to its separate instructions
               Matcher matcher = OSGI_EXPORT_PATTERN.matcher(exportHeader);
