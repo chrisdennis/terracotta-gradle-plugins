@@ -357,7 +357,7 @@ public abstract class PackageInternal implements Package {
       shadow.setDescription(description("Assembles a jar archive containing {0} packaged classes."));
       shadow.setGroup(BasePlugin.BUILD_GROUP);
 
-      shadow.setConfigurations(Collections.singletonList(contentsRuntimeClasspath.get()));
+      shadow.getConfigurations().set(Collections.singletonList(contentsRuntimeClasspath.get()));
       shadow.getArchiveClassifier().set(kebabName(""));
       shadow.mergeServiceFiles();
 
