@@ -40,6 +40,7 @@ import org.gradle.api.artifacts.result.ResolvedArtifactResult;
 import org.gradle.api.attributes.Usage;
 import org.gradle.api.capabilities.Capability;
 import org.gradle.api.component.AdhocComponentWithVariants;
+import org.gradle.api.file.DuplicatesStrategy;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.file.FileTree;
 import org.gradle.api.internal.artifacts.configurations.ConfigurationContainerInternal;
@@ -359,6 +360,8 @@ public abstract class PackageInternal implements Package {
 
       shadow.getConfigurations().set(Collections.singletonList(contentsRuntimeClasspath.get()));
       shadow.getArchiveClassifier().set(kebabName(""));
+
+      shadow.filesMatching("META-INF/services/**", s -> s.setDuplicatesStrategy(DuplicatesStrategy.INCLUDE));
       shadow.mergeServiceFiles();
 
       shadow.exclude("META-INF/MANIFEST.MF");
