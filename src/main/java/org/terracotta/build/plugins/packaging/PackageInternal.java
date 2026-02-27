@@ -28,6 +28,7 @@ import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.ConfigurationContainer;
 import org.gradle.api.artifacts.ConsumableConfiguration;
 import org.gradle.api.artifacts.Dependency;
+import org.gradle.api.artifacts.DependencyConstraintSet;
 import org.gradle.api.artifacts.DependencyScopeConfiguration;
 import org.gradle.api.artifacts.ModuleDependency;
 import org.gradle.api.artifacts.ModuleVersionIdentifier;
@@ -35,6 +36,7 @@ import org.gradle.api.artifacts.ResolvableConfiguration;
 import org.gradle.api.artifacts.component.ComponentIdentifier;
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier;
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
+import org.gradle.api.artifacts.dsl.DependencyConstraintHandler;
 import org.gradle.api.artifacts.dsl.DependencyHandler;
 import org.gradle.api.artifacts.result.ResolvedArtifactResult;
 import org.gradle.api.attributes.Usage;
@@ -57,6 +59,7 @@ import org.gradle.api.tasks.bundling.Jar;
 import org.gradle.internal.resolve.ArtifactResolveException;
 import org.gradle.jvm.toolchain.JavaLanguageVersion;
 import org.gradle.language.base.plugins.LifecycleBasePlugin;
+import org.terracotta.build.Utils;
 import org.terracotta.build.plugins.JavaVersionPlugin;
 import org.terracotta.build.plugins.PackagePlugin;
 
@@ -414,8 +417,12 @@ public abstract class PackageInternal implements Package {
 
     tasks.named(LifecycleBasePlugin.ASSEMBLE_TASK_NAME).configure(task -> task.dependsOn(shadowJar));
 
-    implementation.configure(c -> provided.get().getDependencies().configureEach(dependency ->
-        c.getDependencyConstraints().add(DefaultDependencyConstraint.strictly(dependency.getGroup(), dependency.getName(), dependency.getVersion()))));
+    DependencyConstraintHandler constraintHandler = getProject().getDependencies().getConstraints();
+    implementation.configure(config -> {
+      DependencyConstraintSet constraints = config.getDependencyConstraints();
+      provided.get().getDependencies().configureEach(dep -> constraints.add(constraintHandler.create(Utils.artifact(dep.getGroup(), dep.getName()),
+              c -> c.version(v -> v.strictly(dep.getVersion())))));
+    });
 
     getOptionalFeatures().all(this::createOptionalFeature);
   }
