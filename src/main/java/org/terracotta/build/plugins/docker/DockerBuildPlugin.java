@@ -74,7 +74,7 @@ public class DockerBuildPlugin implements Plugin<Project> {
     TaskProvider<Sync> dockerEnvironment = project.getTasks().register("dockerEnvironment", Sync.class, sync -> {
       sync.setDescription("Assembles the Docker build environment.");
       sync.setGroup(LifecycleBasePlugin.BUILD_GROUP);
-      sync.getInputs().property("projectVersion", (Callable<Object>) project::getVersion);
+      sync.getInputs().property("projectVersion", (Callable<Object>) () -> project.getVersion().toString());
       sync.getInputs().property("dockerImageIds", dockerExtension.getImages().all());
 
       sync.into(project.getLayout().getBuildDirectory().dir("docker"));
